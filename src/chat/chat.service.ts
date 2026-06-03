@@ -58,7 +58,11 @@ export class ChatService {
     phone,
     source: 'chat',
     aiSummary: message,
-    productInterest: message.slice(0, 100),
+   productInterest: message
+  .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+  .replace(/телефон[:\s]*/gi, '')
+  .trim()
+  .slice(0, 100), 
   });
 }
 
