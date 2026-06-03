@@ -57,8 +57,7 @@ export class ChatService {
   lead = await this.leadsService.create({
     phone,
     source: 'chat',
-    aiSummary: message,
-   productInterest: message
+aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,   productInterest: message
   .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
   .replace(/телефон[:\s]*/gi, '')
   .trim()
@@ -90,7 +89,7 @@ export class ChatService {
   lead = await this.leadsService.create({
     phone,
     source: 'chat',
-    aiSummary: message,
+    aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
     productInterest: message.slice(0, 100),
   });
 }
@@ -236,4 +235,24 @@ export class ChatService {
 
     return unit;
   }
-}
+private detectLeadCategory(message: string): string {
+  const text = message.toLowerCase();
+
+  if (text.includes('доск')) {
+    return 'Доска';
+  }
+
+  if (text.includes('брус')) {
+    return 'Брус';
+  }
+
+  if (
+    text.includes('рассчит') ||
+    text.includes('посчитай') ||
+    text.includes('сколько будет')
+  ) {
+    return 'Расчёт';
+  }
+
+  return 'Консультация';
+}}
