@@ -4,14 +4,17 @@ import OpenAI from 'openai';
 @Injectable()
 export class AiService {
   private openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.VSEGPT_API_KEY,
+    baseURL: process.env.VSEGPT_BASE_URL,
   });
 
   async ask(message: string) {
     try {
       const response =
         await this.openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model:
+            process.env.VSEGPT_MODEL ||
+            'openai/gpt-4o-mini',
           messages: [
             {
               role: 'system',
@@ -27,8 +30,8 @@ export class AiService {
 
       return response.choices[0].message.content;
     } catch (error) {
-      console.error('OPENAI ERROR:', error);
-      return 'Ошибка OpenAI';
+      console.error('VSEGPT ERROR:', error);
+      return 'Ошибка VseGPT';
     }
   }
 }
