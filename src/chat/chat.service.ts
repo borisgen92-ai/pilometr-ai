@@ -68,6 +68,26 @@ export class ChatService {
         const stockStatus =
   product.stock >= quantity
     ? `В наличии достаточно: ${product.stock} ${product.unit}.`
+    : `В наличии только ${product.stock} ${product.unit}. Не хватает ${
+        quantity - product.stock
+      } шт.`;
+
+const alternatives =
+  product.stock >= quantity
+    ? []
+    : await this.productsService.findAlternatives(
+        product.category,
+        product.id,
+      );
+
+const alternativesText =
+  alternatives.length > 0
+    ? ` Могу предложить альтернативы: ${alternatives
+        .map((item) => `${item.name} — в наличии ${item.stock} ${item.unit}`)
+        .join('; ')}.`
+    : '';
+  product.stock >= quantity
+    ? `В наличии достаточно: ${product.stock} ${product.unit}.`
     : `В наличии только ${product.stock} ${product.unit}. Не хватает ${quantity - product.stock} шт.`;
 
     const response =
@@ -76,6 +96,7 @@ export class ChatService {
   `Объём: ${volumeResult.totalVolume} м³. ` +
   `Стоимость: ${totalCost} ₽. ` +
   `${stockStatus} ` +
+  `${alternativesText} ` +
   (lead
     ? `Заявка создана, менеджер свяжется с вами.`
     : `Если хотите, оставьте телефон — создам заявку для менеджера.`);

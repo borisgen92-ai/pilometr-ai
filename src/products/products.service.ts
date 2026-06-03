@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import { ILike, Not, Repository } from 'typeorm';
 
 import { Product } from './product.entity';
 
@@ -34,6 +34,19 @@ export class ProductsService {
       order: {
         createdAt: 'DESC',
       },
+    });
+  }
+
+  findAlternatives(category: string, excludeProductId?: string) {
+    return this.productsRepository.find({
+      where: {
+        category,
+        ...(excludeProductId ? { id: Not(excludeProductId) } : {}),
+      },
+      order: {
+        stock: 'DESC',
+      },
+      take: 5,
     });
   }
 
