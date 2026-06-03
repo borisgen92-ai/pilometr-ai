@@ -8,7 +8,7 @@ export class AiService {
     baseURL: process.env.VSEGPT_BASE_URL,
   });
 
-  async ask(message: string) {
+  async ask(message: string, catalogContext?: string) {
     try {
       const response = await this.openai.chat.completions.create({
         model: process.env.VSEGPT_MODEL || 'openai/gpt-4o-mini',
@@ -27,14 +27,17 @@ export class AiService {
 6. Не придумывать характеристики товаров, которых нет в каталоге.
 7. Общаться как опытный менеджер по продаже пиломатериалов.
 
-Если клиент не указал размеры или количество — сначала уточни их.
+Если есть каталог товаров — используй только товары из каталога.
+Если подходящего товара нет — честно скажи, что нужно уточнить наличие у менеджера.
 
 Отвечай на русском языке.
 `,
           },
           {
             role: 'user',
-            content: message,
+            content: catalogContext
+              ? `Каталог товаров:\n${catalogContext}\n\nЗапрос клиента:\n${message}`
+              : message,
           },
         ],
       });

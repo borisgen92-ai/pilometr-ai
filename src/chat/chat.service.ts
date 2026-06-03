@@ -27,16 +27,30 @@ export class ChatService {
     const products = await this.productsService.search(searchQuery);
 
     if (products.length === 0) {
-      const aiResponse = await this.aiService.ask(message);
+  const allProducts = await this.productsService.findAll();
 
-      return {
-        userMessage: message,
-        searchQuery,
-        response: aiResponse,
-        products: [],
-        source: 'openai',
-      };
-    }
+  const catalogContext = allProducts
+    .map(
+      (item) =>
+        `- ${item.name}, категория: ${item.category}, цена: ${item.price} ₽/${item.unit}, остаток: ${item.stock} ${item.unit}, описание: ${
+          item.description || 'нет описания'
+        }`,
+    )
+    .join('\n');
+
+  const aiResponse = await this.aiService.ask(
+    message,
+    catalogContext,
+  );
+
+  return {
+    userMessage: message,
+    searchQuery,
+    response: aiResponse,
+    products: [],
+    source: 'openai_with_catalog',
+  };
+}
 
     const product = products[0];
 
