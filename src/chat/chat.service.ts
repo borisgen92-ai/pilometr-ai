@@ -27,51 +27,56 @@ export class ChatService {
     const products = await this.productsService.search(searchQuery);
 
     if (products.length === 0) {
-const allProducts =
-  await this.productsService.findAll();
+      const allProducts = await this.productsService.findAll();
 
-const relevantProducts = allProducts.filter(
-  (item) =>
-    message
-      .toLowerCase()
-      .includes(item.category.toLowerCase()) ||
-    message.includes('50') ||
-    message.includes('100') ||
-    message.includes('150') ||
-    message.includes('200'),
-);
+      const relevantProducts = allProducts.filter(
+        (item) =>
+          message.toLowerCase().includes(item.category.toLowerCase()) ||
+          message.includes('50') ||
+          message.includes('100') ||
+          message.includes('150') ||
+          message.includes('200'),
+      );
 
-const catalogContext =
-  (relevantProducts.length > 0
-    ? relevantProducts
-    : allProducts)
-    .map(
-      (item) =>
-        `Товар: ${item.name}
-Цена: ${item.price} ₽/${
-  item.unit === 'm3' ? 'м³' : item.unit
-}
-
-Остаток: ${item.stock} ${
-  item.unit === 'm3' ? 'м³' : item.unit
-}
+      const catalogContext = (relevantProducts.length > 0
+        ? relevantProducts
+        : allProducts
+      )
+        .map(
+          (item) =>
+            `Товар: ${item.name}
+Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
+Остаток: ${item.stock} ${this.formatUnit(item.unit)}
 Описание: ${item.description || 'нет описания'}`,
-    )
-    .join('\n\n');
+        )
+        .join('\n\n');
 
-  const aiResponse = await this.aiService.ask(
-    message,
-    catalogContext,
-  );
+      let lead: Lead | null = null;
 
-  return {
-    userMessage: message,
-    searchQuery,
-    response: aiResponse,
-    products: [],
-    source: 'openai_with_catalog',
-  };
-}
+      if (phone) {
+        lead = await this.leadsService.create({
+          phone,
+          source: 'chat',
+          aiSummary: message,
+          productInterest: 'Подбор товара через AI',
+        });
+      }
+
+      const aiResponse = await this.aiService.ask(message, catalogContext);
+
+      return {
+        userMessage: message,
+        searchQuery,
+        response:
+          aiResponse +
+          (lead
+            ? ' Заявка создана. Менеджер свяжется с вами.'
+            : ''),
+        products: [],
+        lead,
+        source: 'openai_with_catalog',
+      };
+    }
 
     const product = products[0];
 
@@ -100,41 +105,46 @@ const catalogContext =
           product.price,
           volumeResult.totalVolume,
         );
-        const stockStatus =
-  product.stock >= quantity
-    ? `В наличии достаточно: ${product.stock} ${product.unit}.`
-    : `В наличии только ${product.stock} ${product.unit}. Не хватает ${
-        quantity - product.stock
-      } шт.`;
 
-const alternatives =
-  product.stock >= quantity
-    ? []
-    : await this.productsService.findAlternatives(
-        product.category,
-        product.id,
-      );
+      const stockStatus =
+        product.stock >= quantity
+          ? `В наличии достаточно: ${product.stock} ${this.formatUnit(
+              product.unit,
+            )}.`
+          : `В наличии только ${product.stock} ${this.formatUnit(
+              product.unit,
+            )}. Не хватает ${quantity - product.stock} шт.`;
 
-const alternativesText =
-  alternatives.length > 0
-    ? ` Могу предложить альтернативы: ${alternatives
-        .map((item) => `${item.name} — в наличии ${item.stock} ${item.unit}`)
-        .join('; ')}.`
-    : '';
-  product.stock >= quantity
-    ? `В наличии достаточно: ${product.stock} ${product.unit}.`
-    : `В наличии только ${product.stock} ${product.unit}. Не хватает ${quantity - product.stock} шт.`;
+      const alternatives =
+        product.stock >= quantity
+          ? []
+          : await this.productsService.findAlternatives(
+              product.category,
+              product.id,
+            );
 
-    const response =
-  `Нашёл товар: ${product.name}. ` +
-  `Количество: ${quantity} шт. ` +
-  `Объём: ${volumeResult.totalVolume} м³. ` +
-  `Стоимость: ${totalCost} ₽. ` +
-  `${stockStatus} ` +
-  `${alternativesText} ` +
-  (lead
-    ? `Заявка создана, менеджер свяжется с вами.`
-    : `Если хотите, оставьте телефон — создам заявку для менеджера.`);
+      const alternativesText =
+        alternatives.length > 0
+          ? ` Могу предложить альтернативы: ${alternatives
+              .map(
+                (item) =>
+                  `${item.name} — в наличии ${item.stock} ${this.formatUnit(
+                    item.unit,
+                  )}`,
+              )
+              .join('; ')}.`
+          : '';
+
+      const response =
+        `Нашёл товар: ${product.name}. ` +
+        `Количество: ${quantity} шт. ` +
+        `Объём: ${volumeResult.totalVolume} м³. ` +
+        `Стоимость: ${totalCost} ₽. ` +
+        `${stockStatus} ` +
+        `${alternativesText} ` +
+        (lead
+          ? `Заявка создана, менеджер свяжется с вами.`
+          : `Если хотите, оставьте телефон — создам заявку для менеджера.`);
 
       return {
         userMessage: message,
@@ -150,7 +160,11 @@ const alternativesText =
 
     const aiResponse = await this.aiService.ask(
       `Клиент спрашивает: "${message}". 
-      В каталоге найден товар: ${product.name}, цена ${product.price} ₽/${product.unit}, остаток ${product.stock}. 
+      В каталоге найден товар: ${product.name}, цена ${
+        product.price
+      } ₽/${this.formatUnit(product.unit)}, остаток ${
+        product.stock
+      } ${this.formatUnit(product.unit)}. 
       Ответь клиенту коротко и по делу.`,
     );
 
@@ -209,5 +223,13 @@ const alternativesText =
     }
 
     return match[1].replace(/\s/g, '');
+  }
+
+  private formatUnit(unit: string): string {
+    if (unit === 'm3') {
+      return 'м³';
+    }
+
+    return unit;
   }
 }
