@@ -54,13 +54,13 @@ export class ChatService {
       let lead: Lead | null = null;
 
       if (phone) {
-        lead = await this.leadsService.create({
-          phone,
-          source: 'chat',
-          aiSummary: message,
-          productInterest: 'Подбор товара через AI',
-        });
-      }
+  lead = await this.leadsService.create({
+    phone,
+    source: 'chat',
+    aiSummary: message,
+    productInterest: message.slice(0, 100),
+  });
+}
 
       const aiResponse = await this.aiService.ask(message, catalogContext);
 
@@ -83,13 +83,13 @@ export class ChatService {
     let lead: Lead | null = null;
 
     if (phone) {
-      lead = await this.leadsService.create({
-        phone,
-        productInterest: product.name,
-        source: 'chat',
-        aiSummary: message,
-      });
-    }
+  lead = await this.leadsService.create({
+    phone,
+    source: 'chat',
+    aiSummary: message,
+    productInterest: message.slice(0, 100),
+  });
+}
 
     if (quantity && dimensions) {
       const volumeResult =
