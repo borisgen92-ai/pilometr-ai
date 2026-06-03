@@ -4,6 +4,7 @@ import { ProductsService } from '../products/products.service';
 import { CalculatorService } from '../calculator/calculator.service';
 import { LeadsService } from '../leads/leads.service';
 import { Lead } from '../leads/lead.entity';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class ChatService {
@@ -11,6 +12,7 @@ export class ChatService {
     private readonly productsService: ProductsService,
     private readonly calculatorService: CalculatorService,
     private readonly leadsService: LeadsService,
+    private readonly aiService: AiService,
   ) {}
 
   async processMessage(message: string) {
@@ -25,18 +27,21 @@ export class ChatService {
     const products = await this.productsService.search(searchQuery);
 
     if (products.length === 0) {
+      const aiResponse = await this.aiService.ask(message);
+
       return {
         userMessage: message,
         searchQuery,
-        response:
-          'Я пока не нашёл подходящий товар в каталоге. Могу передать заявку менеджеру.',
+        response: aiResponse,
         products: [],
+        source: 'openai',
       };
     }
 
     const product = products[0];
 
-let lead: Lead | null = null;
+    let lead: Lead | null = null;
+
     if (phone) {
       lead = await this.leadsService.create({
         phone,
@@ -60,37 +65,46 @@ let lead: Lead | null = null;
           product.price,
           volumeResult.totalVolume,
         );
+        const stockStatus =
+  product.stock >= quantity
+    ? `В наличии достаточно: ${product.stock} ${product.unit}.`
+    : `В наличии только ${product.stock} ${product.unit}. Не хватает ${quantity - product.stock} шт.`;
+
+    const response =
+  `Нашёл товар: ${product.name}. ` +
+  `Количество: ${quantity} шт. ` +
+  `Объём: ${volumeResult.totalVolume} м³. ` +
+  `Стоимость: ${totalCost} ₽. ` +
+  `${stockStatus} ` +
+  (lead
+    ? `Заявка создана, менеджер свяжется с вами.`
+    : `Если хотите, оставьте телефон — создам заявку для менеджера.`);
 
       return {
         userMessage: message,
         searchQuery,
-        response:
-          `Нашёл товар: ${product.name}. ` +
-          `Количество: ${quantity} шт. ` +
-          `Объём: ${volumeResult.totalVolume} м³. ` +
-          `Стоимость: ${totalCost} ₽.` +
-          (lead
-            ? ` Заявка создана, менеджер свяжется с вами.`
-            : ` Если хотите, оставьте телефон — создам заявку для менеджера.`),
+        response,
         product,
         calculation: volumeResult,
         totalCost,
         lead,
+        source: 'rules',
       };
     }
+
+    const aiResponse = await this.aiService.ask(
+      `Клиент спрашивает: "${message}". 
+      В каталоге найден товар: ${product.name}, цена ${product.price} ₽/${product.unit}, остаток ${product.stock}. 
+      Ответь клиенту коротко и по делу.`,
+    );
 
     return {
       userMessage: message,
       searchQuery,
-      response:
-        `Нашёл товар: ${product.name}. ` +
-        `Цена: ${product.price} ₽/${product.unit}. ` +
-        `В наличии: ${product.stock}.` +
-        (lead
-          ? ` Заявка создана, менеджер свяжется с вами.`
-          : ` Если хотите, оставьте телефон — создам заявку для менеджера.`),
+      response: aiResponse,
       products,
       lead,
+      source: 'openai_with_product',
     };
   }
 
