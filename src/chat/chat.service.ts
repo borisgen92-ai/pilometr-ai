@@ -48,8 +48,13 @@ const catalogContext =
     .map(
       (item) =>
         `Товар: ${item.name}
-Цена: ${item.price} ₽/${item.unit}
-Остаток: ${item.stock} ${item.unit}
+Цена: ${item.price} ₽/${
+  item.unit === 'm3' ? 'м³' : item.unit
+}
+
+Остаток: ${item.stock} ${
+  item.unit === 'm3' ? 'м³' : item.unit
+}
 Описание: ${item.description || 'нет описания'}`,
     )
     .join('\n\n');
