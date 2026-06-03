@@ -27,16 +27,32 @@ export class ChatService {
     const products = await this.productsService.search(searchQuery);
 
     if (products.length === 0) {
-  const allProducts = await this.productsService.findAll();
+const allProducts =
+  await this.productsService.findAll();
 
-  const catalogContext = allProducts
+const relevantProducts = allProducts.filter(
+  (item) =>
+    message
+      .toLowerCase()
+      .includes(item.category.toLowerCase()) ||
+    message.includes('50') ||
+    message.includes('100') ||
+    message.includes('150') ||
+    message.includes('200'),
+);
+
+const catalogContext =
+  (relevantProducts.length > 0
+    ? relevantProducts
+    : allProducts)
     .map(
       (item) =>
-        `- ${item.name}, категория: ${item.category}, цена: ${item.price} ₽/${item.unit}, остаток: ${item.stock} ${item.unit}, описание: ${
-          item.description || 'нет описания'
-        }`,
+        `Товар: ${item.name}
+Цена: ${item.price} ₽/${item.unit}
+Остаток: ${item.stock} ${item.unit}
+Описание: ${item.description || 'нет описания'}`,
     )
-    .join('\n');
+    .join('\n\n');
 
   const aiResponse = await this.aiService.ask(
     message,
