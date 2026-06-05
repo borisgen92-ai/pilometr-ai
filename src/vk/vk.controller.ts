@@ -29,6 +29,17 @@ export class VkController {
         text,
       });
 
+      if (!text || !peerId) {
+        return 'ok';
+      }
+
+      const aiAnswer = await this.chatService.processMessage(text);
+
+      await this.vkService.sendMessage(
+        peerId,
+        aiAnswer.response || 'Спасибо за сообщение! Сейчас уточню информацию.',
+      );
+
       return 'ok';
     }
 
