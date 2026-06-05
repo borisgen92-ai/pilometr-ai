@@ -20,9 +20,9 @@ export class ChatService {
     const dimensions = this.extractDimensions(message);
     const phone = this.extractPhone(message);
 
-    const searchQuery = message;
+  const searchQuery = this.buildSearchQuery(message);
 
-    let products = await this.productsService.search(searchQuery);
+let products = await this.productsService.search(searchQuery);
 
     if (products.length === 0 && dimensions) {
       products = await this.productsService.findByDimensions(
@@ -87,7 +87,28 @@ export class ChatService {
         source: 'openai_with_catalog',
       };
     }
+if (!dimensions && products.length > 0) {
+  const productsText = products
+    .slice(0, 5)
+    .map(
+      (item, index) =>
+        `${index + 1}. ${item.name} — ${item.price} ₽/${this.formatUnit(
+          item.unit,
+        )}, в наличии ${item.stock} ${this.formatUnit(item.unit)}`,
+    )
+    .join('\n');
 
+  return {
+    userMessage: message,
+    searchQuery,
+    response:
+      `Да, у нас есть такие позиции:\n\n${productsText}\n\n` +
+      `Подскажите, для какой задачи подбираете материал?`,
+    products,
+    lead: null,
+    source: 'catalog_list',
+  };
+}
     const product = products[0];
 
     let lead: Lead | null = null;
@@ -290,4 +311,28 @@ ${productsContext}
 
     return 'Консультация';
   }
-}
+private buildSearchQuery(message: string): string {
+  const text = message.toLowerCase();
+
+  if (text.includes('щит')) {
+    return 'щит';
+  }
+
+  if (text.includes('доск')) {
+    return 'дос';
+  }
+
+  if (text.includes('брус')) {
+    return 'брус';
+  }
+
+  if (text.includes('ступ')) {
+    return 'ступень';
+  }
+
+  if (text.includes('слэб')) {
+    return 'слэб';
+  }
+
+  return message;
+}}
