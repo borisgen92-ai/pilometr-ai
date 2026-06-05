@@ -71,4 +71,22 @@ export class Product {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+@Column({ default: 0 })
+volhovStock: number;
+
+@Column({ default: 0 })
+lomonosovStock: number;
+
+@Column({ default: 0 })
+roshinoStock: number;
+
+@Column({ default: 0 })
+skotnoeStock: number;
+
+@Column({ default: 0 })
+ladogaStock: number;
+
+@Column({ default: 0 })
+pulkovoStock: number;
 }
