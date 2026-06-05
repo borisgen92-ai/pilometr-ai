@@ -20,11 +20,18 @@ export class ChatService {
     const dimensions = this.extractDimensions(message);
     const phone = this.extractPhone(message);
 
-    const searchQuery = dimensions
-      ? `${dimensions.width}x${dimensions.height}x${dimensions.length}`
-      : message;
+    const searchQuery = message;
 
-    const products = await this.productsService.search(searchQuery);
+    let products = await this.productsService.search(searchQuery);
+
+    if (products.length === 0 && dimensions) {
+      products = await this.productsService.findByDimensions(
+        dimensions.width,
+        dimensions.height,
+        dimensions.length,
+        message,
+      );
+    }
 
     if (products.length === 0) {
       const allProducts = await this.productsService.findAll();
@@ -42,6 +49,7 @@ export class ChatService {
         ? relevantProducts
         : allProducts
       )
+        .slice(0, 20)
         .map(
           (item) =>
             `Товар: ${item.name}
@@ -54,16 +62,17 @@ export class ChatService {
       let lead: Lead | null = null;
 
       if (phone) {
-  lead = await this.leadsService.create({
-    phone,
-    source: 'chat',
-aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,   productInterest: message
-  .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-  .replace(/телефон[:\s]*/gi, '')
-  .trim()
-  .slice(0, 100), 
-  });
-}
+        lead = await this.leadsService.create({
+          phone,
+          source: 'chat',
+          aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
+          productInterest: message
+            .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+            .replace(/телефон[:\s]*/gi, '')
+            .trim()
+            .slice(0, 100),
+        });
+      }
 
       const aiResponse = await this.aiService.ask(message, catalogContext);
 
@@ -72,9 +81,7 @@ aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}
         searchQuery,
         response:
           aiResponse +
-          (lead
-            ? ' Заявка создана. Менеджер свяжется с вами.'
-            : ''),
+          (lead ? ' Заявка создана. Менеджер свяжется с вами.' : ''),
         products: [],
         lead,
         source: 'openai_with_catalog',
@@ -86,28 +93,30 @@ aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}
     let lead: Lead | null = null;
 
     if (phone) {
-  lead = await this.leadsService.create({
-    phone,
-    source: 'chat',
-    aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
-    productInterest: message.slice(0, 100),
-  });
-}
+      lead = await this.leadsService.create({
+        phone,
+        source: 'chat',
+        aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
+        productInterest: message
+          .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+          .replace(/телефон[:\s]*/gi, '')
+          .trim()
+          .slice(0, 100),
+      });
+    }
 
     if (quantity && dimensions) {
-      const volumeResult =
-        this.calculatorService.calculateWoodVolume(
-          dimensions.width,
-          dimensions.height,
-          dimensions.length,
-          quantity,
-        );
+      const volumeResult = this.calculatorService.calculateWoodVolume(
+        dimensions.width,
+        dimensions.height,
+        dimensions.length,
+        quantity,
+      );
 
-      const totalCost =
-        this.calculatorService.calculateCost(
-          product.price,
-          volumeResult.totalVolume,
-        );
+      const totalCost = this.calculatorService.calculateCost(
+        product.price,
+        volumeResult.totalVolume,
+      );
 
       const stockStatus =
         product.stock >= quantity
@@ -121,10 +130,7 @@ aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}
       const alternatives =
         product.stock >= quantity
           ? []
-          : await this.productsService.findAlternatives(
-              product.category,
-              product.id,
-            );
+          : await this.productsService.findAlternatives(product.category, product.id);
 
       const alternativesText =
         alternatives.length > 0
@@ -146,8 +152,8 @@ aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}
         `${stockStatus} ` +
         `${alternativesText} ` +
         (lead
-          ? `Заявка создана, менеджер свяжется с вами.`
-          : `Если хотите, оставьте телефон — создам заявку для менеджера.`);
+          ? 'Заявка создана, менеджер свяжется с вами.'
+          : 'Если хотите, оставьте телефон — создам заявку для менеджера.');
 
       return {
         userMessage: message,
@@ -161,14 +167,28 @@ aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}
       };
     }
 
+    const productsContext = products
+      .slice(0, 5)
+      .map(
+        (item, index) =>
+          `${index + 1}. ${item.name}
+Категория: ${item.category}
+Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
+Остаток: ${item.stock} ${this.formatUnit(item.unit)}
+Размеры: ${item.height}х${item.width}х${item.length} мм`,
+      )
+      .join('\n\n');
+
     const aiResponse = await this.aiService.ask(
-      `Клиент спрашивает: "${message}". 
-      В каталоге найден товар: ${product.name}, цена ${
-        product.price
-      } ₽/${this.formatUnit(product.unit)}, остаток ${
-        product.stock
-      } ${this.formatUnit(product.unit)}. 
-      Ответь клиенту коротко и по делу.`,
+      `Клиент спрашивает: "${message}"
+
+Вот найденные товары из реального каталога:
+${productsContext}
+
+Ответь клиенту коротко и по делу. 
+Если товар найден точно — скажи цену и наличие.
+Если есть несколько вариантов — перечисли 2-3 лучших.
+Не говори, что товара нет, если он есть в списке.`,
     );
 
     return {
@@ -177,13 +197,23 @@ aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}
       response: aiResponse,
       products,
       lead,
-      source: 'openai_with_product',
+      source: 'openai_with_products',
     };
   }
 
   private extractQuantity(message: string): number | null {
-    const match = message.match(
-      /(\d+)\s*(шт|штук|досок|доски|доска|бруса|брус|брусьев)?/i,
+    const normalizedMessage = message
+      .replace(/х/g, 'x')
+      .replace(/Х/g, 'x')
+      .replace(/\*/g, 'x');
+
+    const withoutDimensions = normalizedMessage.replace(
+      /\d+\s*x\s*\d+\s*x\s*\d+/gi,
+      '',
+    );
+
+    const match = withoutDimensions.match(
+      /(\d+)\s*(шт|штук|досок|доски|доска|бруса|брус|брусьев)/i,
     );
 
     if (!match) {
@@ -193,33 +223,29 @@ aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}
     return Number(match[1]);
   }
 
-  private extractDimensions(message: string):
-    | { width: number; height: number; length: number }
-    | null {
+  private extractDimensions(
+    message: string,
+  ): { width: number; height: number; length: number } | null {
     const normalizedMessage = message
       .replace(/х/g, 'x')
       .replace(/Х/g, 'x')
       .replace(/\*/g, 'x');
 
-    const match = normalizedMessage.match(
-      /(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/i,
-    );
+    const match = normalizedMessage.match(/(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/i);
 
     if (!match) {
       return null;
     }
 
     return {
-      width: Number(match[1]),
-      height: Number(match[2]),
+      height: Number(match[1]),
+      width: Number(match[2]),
       length: Number(match[3]),
     };
   }
 
   private extractPhone(message: string): string | null {
-    const match = message.match(
-      /(\+?\d[\d\s\-()]{8,}\d)/,
-    );
+    const match = message.match(/(\+?\d[\d\s\-()]{8,}\d)/);
 
     if (!match) {
       return null;
@@ -235,24 +261,30 @@ aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}
 
     return unit;
   }
-private detectLeadCategory(message: string): string {
-  const text = message.toLowerCase();
 
-  if (text.includes('доск')) {
-    return 'Доска';
+  private detectLeadCategory(message: string): string {
+    const text = message.toLowerCase();
+
+    if (text.includes('слэб')) {
+      return 'Слэб';
+    }
+
+    if (text.includes('доск')) {
+      return 'Доска';
+    }
+
+    if (text.includes('брус')) {
+      return 'Брус';
+    }
+
+    if (
+      text.includes('рассчит') ||
+      text.includes('посчитай') ||
+      text.includes('сколько будет')
+    ) {
+      return 'Расчёт';
+    }
+
+    return 'Консультация';
   }
-
-  if (text.includes('брус')) {
-    return 'Брус';
-  }
-
-  if (
-    text.includes('рассчит') ||
-    text.includes('посчитай') ||
-    text.includes('сколько будет')
-  ) {
-    return 'Расчёт';
-  }
-
-  return 'Консультация';
-}}
+}
