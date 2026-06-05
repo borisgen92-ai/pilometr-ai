@@ -7,6 +7,7 @@ import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { CalculatorModule } from './calculator/calculator.module';
 import { ChatModule } from './chat/chat.module';
+import { VkModule } from './vk/vk.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -30,6 +31,7 @@ import { ChatModule } from './chat/chat.module';
     ProductsModule,
     CalculatorModule,
     ChatModule,
+    VkModule,
   ],
 })
 export class AppModule {}

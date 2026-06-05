@@ -17,5 +17,6 @@ import { AiModule } from '../ai/ai.module';
   ],
   controllers: [ChatController],
   providers: [ChatService],
+  exports: [ChatService],
 })
 export class ChatModule {}
