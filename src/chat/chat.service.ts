@@ -113,7 +113,10 @@ export class ChatService {
         quantity,
       );
 
-      const totalCost = this.calculatorService.calculateCost(
+      const totalCost =
+  product.unit === 'шт'
+    ? product.price * quantity
+    : this.calculatorService.calculateCost(
         product.price,
         volumeResult.totalVolume,
       );
