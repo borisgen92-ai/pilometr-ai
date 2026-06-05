@@ -80,6 +80,43 @@ export class ProductsService {
         `,
         'ASC',
       ).addOrderBy('product.stock', 'DESC');
+    } else if (
+      normalizedKeyword.includes('щит') ||
+      normalizedKeyword.includes('мебельный')
+    ) {
+      qb.orderBy(
+        `
+        CASE
+          WHEN LOWER(product.name) LIKE '%щит мебельный%' THEN 0
+          WHEN LOWER(product.name) LIKE '%щит%' THEN 1
+          WHEN LOWER(product.category) LIKE '%мебельный щит%' THEN 2
+          ELSE 3
+        END
+        `,
+        'ASC',
+      ).addOrderBy('product.stock', 'DESC');
+    } else if (normalizedKeyword.includes('ступ')) {
+      qb.orderBy(
+        `
+        CASE
+          WHEN LOWER(product.name) LIKE '%ступень%' THEN 0
+          WHEN LOWER(product.category) LIKE '%ступен%' THEN 1
+          ELSE 2
+        END
+        `,
+        'ASC',
+      ).addOrderBy('product.stock', 'DESC');
+    } else if (normalizedKeyword.includes('брус')) {
+      qb.orderBy(
+        `
+        CASE
+          WHEN LOWER(product.name) LIKE '%брус%' THEN 0
+          WHEN LOWER(product.category) LIKE '%брус%' THEN 1
+          ELSE 2
+        END
+        `,
+        'ASC',
+      ).addOrderBy('product.stock', 'DESC');
     } else {
       qb.orderBy('product.stock', 'DESC');
     }
