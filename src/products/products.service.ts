@@ -24,19 +24,34 @@ export class ProductsService {
     });
   }
 
-  search(query: string) {
-    return this.productsRepository.find({
-      where: [
-        { name: ILike(`%${query}%`) },
-        { category: ILike(`%${query}%`) },
-        { description: ILike(`%${query}%`) },
-      ],
-      order: {
-        stock: 'DESC',
-      },
-      take: 10,
-    });
+search(query: string) {
+  const normalizedQuery = query.toLowerCase();
+
+  const qb = this.productsRepository
+    .createQueryBuilder('product')
+    .where('product.name ILIKE :query', { query: `%${query}%` })
+    .orWhere('product.category ILIKE :query', { query: `%${query}%` })
+    .orWhere('product.description ILIKE :query', { query: `%${query}%` });
+
+  if (normalizedQuery.includes('щит') || normalizedQuery.includes('40')) {
+    qb.orderBy(
+      `
+      CASE
+        WHEN LOWER(product.name) LIKE '%щит мебельный%' AND product.height = 40 THEN 0
+        WHEN LOWER(product.name) LIKE '%щит мебельный%' THEN 1
+        WHEN LOWER(product.name) LIKE '%щит конструкционный%' THEN 2
+        WHEN LOWER(product.category) LIKE '%мебельный щит%' THEN 3
+        ELSE 4
+      END
+      `,
+      'ASC',
+    ).addOrderBy('product.stock', 'DESC');
+  } else {
+    qb.orderBy('product.stock', 'DESC');
   }
+
+  return qb.take(10).getMany();
+}
 
   findByDimensions(
     width: number,
