@@ -10,10 +10,10 @@ export class VkController {
   private readonly lastProductByPeerId = new Map<number, any>();
 
   constructor(
-  private readonly chatService: ChatService,
-  private readonly vkService: VkService,
-  private readonly leadsService: LeadsService,
-) {}
+    private readonly chatService: ChatService,
+    private readonly vkService: VkService,
+    private readonly leadsService: LeadsService,
+  ) {}
 
   @Post('webhook')
   @HttpCode(200)
@@ -54,6 +54,7 @@ export class VkController {
       }
 
       const lastProduct = this.lastProductByPeerId.get(peerId);
+
       const warehouseAnswer = this.tryAnswerWarehouseQuestion(text, lastProduct);
 
       if (warehouseAnswer) {
@@ -62,6 +63,7 @@ export class VkController {
       }
 
       const previousMessages = this.conversationMemory.get(peerId) || [];
+
       const shouldResetMemory = this.shouldResetConversation(
         text,
         previousMessages,
@@ -78,6 +80,26 @@ ${actualPreviousMessages.join('\n')}
 ${text}`
           : text;
 
+      const phoneMatch = text.match(/(\+?\d[\d\s\-()]{8,}\d)/);
+
+      if (phoneMatch) {
+        await this.leadsService.create({
+          phone: phoneMatch[1].replace(/\s/g, ''),
+          source: 'vk',
+          productInterest: lastProduct?.name || text,
+          aiSummary: `VK заявка. Сообщение клиента: ${text}. Товар: ${
+            lastProduct?.name || 'не указан'
+          }`,
+        });
+
+        await this.vkService.sendMessage(
+          peerId,
+          'Спасибо! Заявка создана, менеджер свяжется с вами.',
+        );
+
+        return 'ok';
+      }
+
       const aiAnswer = await this.chatService.processMessage(messageWithContext);
 
       const productFromAnswer =
@@ -89,27 +111,6 @@ ${text}`
       if (productFromAnswer) {
         this.lastProductByPeerId.set(peerId, productFromAnswer);
       }
-     const phoneMatch = text.match(/(\+?\d[\d\s\-()]{8,}\d)/);
-
-if (phoneMatch) {
-  const lastProduct = this.lastProductByPeerId.get(peerId);
-
-  await this.leadsService.create({
-    phone: phoneMatch[1].replace(/\s/g, ''),
-    source: 'vk',
-    productInterest: lastProduct?.name || text,
-    aiSummary: `VK заявка. Сообщение клиента: ${text}. Товар: ${
-      lastProduct?.name || 'не указан'
-    }`,
-  });
-
-  await this.vkService.sendMessage(
-    peerId,
-    'Спасибо! Заявка создана, менеджер свяжется с вами.',
-  );
-
-  return 'ok';
-} 
 
       const updatedMessages = [...actualPreviousMessages, text].slice(-5);
       this.conversationMemory.set(peerId, updatedMessages);
