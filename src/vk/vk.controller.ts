@@ -4,6 +4,8 @@ import { VkService } from './vk.service';
 
 @Controller('vk')
 export class VkController {
+  private readonly conversationMemory = new Map<number, string[]>();
+
   constructor(
     private readonly chatService: ChatService,
     private readonly vkService: VkService,
@@ -33,7 +35,21 @@ export class VkController {
         return 'ok';
       }
 
-      const aiAnswer = await this.chatService.processMessage(text);
+      const previousMessages = this.conversationMemory.get(peerId) || [];
+
+      const messageWithContext =
+        previousMessages.length > 0
+          ? `Контекст прошлых сообщений клиента:
+${previousMessages.join('\n')}
+
+Новое сообщение клиента:
+${text}`
+          : text;
+
+      const aiAnswer = await this.chatService.processMessage(messageWithContext);
+
+      const updatedMessages = [...previousMessages, text].slice(-5);
+      this.conversationMemory.set(peerId, updatedMessages);
 
       await this.vkService.sendMessage(
         peerId,
