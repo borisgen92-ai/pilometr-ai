@@ -88,25 +88,37 @@ let products = await this.productsService.search(searchQuery);
       };
     }
 if (!dimensions && products.length > 0) {
-  const productsText = products
-    .slice(0, 5)
+  const productsContext = products
+    .slice(0, 10)
     .map(
       (item, index) =>
-        `${index + 1}. ${item.name} — ${item.price} ₽/${this.formatUnit(
-          item.unit,
-        )}, в наличии ${item.stock} ${this.formatUnit(item.unit)}`,
+        `${index + 1}. ${item.name}
+Категория: ${item.category}
+Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
+Остаток: ${item.stock} ${this.formatUnit(item.unit)}
+Размеры: ${item.height}х${item.width}х${item.length} мм`,
     )
-    .join('\n');
+    .join('\n\n');
+
+  const aiResponse = await this.aiService.ask(
+    `Клиент спрашивает: "${message}"
+
+Найденные товары из каталога:
+${productsContext}
+
+Ответь как продавец Пилометра.
+Если клиент спрашивает про стол или столешницу — рекомендуй мебельный щит 40 мм, а 28 мм как более лёгкий вариант.
+Если клиент спрашивает общую категорию, не просто перечисляй первые товары, а помоги выбрать по задаче.`,
+    productsContext,
+  );
 
   return {
     userMessage: message,
     searchQuery,
-    response:
-      `Да, у нас есть такие позиции:\n\n${productsText}\n\n` +
-      `Подскажите, для какой задачи подбираете материал?`,
+    response: aiResponse,
     products,
     lead: null,
-    source: 'catalog_list',
+    source: 'openai_with_catalog_and_knowledge',
   };
 }
     const product = products[0];
@@ -314,9 +326,16 @@ ${productsContext}
 private buildSearchQuery(message: string): string {
   const text = message.toLowerCase();
 
-  if (text.includes('щит')) {
-    return 'щит';
-  }
+if (
+  text.includes('стол') ||
+  text.includes('столешниц')
+) {
+  return 'щит 40';
+}
+
+if (text.includes('щит')) {
+  return 'щит';
+}
 
   if (text.includes('доск')) {
     return 'дос';
