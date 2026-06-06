@@ -19,18 +19,19 @@ export class ChatService {
     const quantity = this.extractQuantity(message);
     const dimensions = this.extractDimensions(message);
     const phone = this.extractPhone(message);
+    const searchQuery = this.buildSearchQuery(message);
 
-  const searchQuery = this.buildSearchQuery(message);
+    let products;
 
-let products = await this.productsService.search(searchQuery);
-
-    if (products.length === 0 && dimensions) {
+    if (dimensions) {
       products = await this.productsService.findByDimensions(
         dimensions.width,
         dimensions.height,
         dimensions.length,
         message,
       );
+    } else {
+      products = await this.productsService.search(searchQuery);
     }
 
     if (products.length === 0) {
@@ -87,21 +88,12 @@ let products = await this.productsService.search(searchQuery);
         source: 'openai_with_catalog',
       };
     }
-if (!dimensions && products.length > 0) {
-  const productsContext = products
-    .slice(0, 10)
-    .map(
-      (item, index) =>
-        `${index + 1}. ${item.name}
-Категория: ${item.category}
-Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
-Остаток: ${item.stock} ${this.formatUnit(item.unit)}
-Размеры: ${item.height}х${item.width}х${item.length} мм`,
-    )
-    .join('\n\n');
 
-  const aiResponse = await this.aiService.ask(
-    `Клиент спрашивает: "${message}"
+    if (!dimensions && products.length > 0) {
+      const productsContext = this.buildProductsContext(products, 10);
+
+      const aiResponse = await this.aiService.ask(
+        `Клиент спрашивает: "${message}"
 
 Найденные товары из каталога:
 ${productsContext}
@@ -109,18 +101,19 @@ ${productsContext}
 Ответь как продавец Пилометра.
 Если клиент спрашивает про стол или столешницу — рекомендуй мебельный щит 40 мм, а 28 мм как более лёгкий вариант.
 Если клиент спрашивает общую категорию, не просто перечисляй первые товары, а помоги выбрать по задаче.`,
-    productsContext,
-  );
+        productsContext,
+      );
 
-  return {
-    userMessage: message,
-    searchQuery,
-    response: aiResponse,
-    products,
-    lead: null,
-    source: 'openai_with_catalog_and_knowledge',
-  };
-}
+      return {
+        userMessage: message,
+        searchQuery,
+        response: aiResponse,
+        products,
+        lead: null,
+        source: 'openai_with_catalog_and_knowledge',
+      };
+    }
+
     const product = products[0];
 
     let lead: Lead | null = null;
@@ -147,12 +140,12 @@ ${productsContext}
       );
 
       const totalCost =
-  product.unit === 'шт'
-    ? product.price * quantity
-    : this.calculatorService.calculateCost(
-        product.price,
-        volumeResult.totalVolume,
-      );
+        product.unit === 'шт'
+          ? product.price * quantity
+          : this.calculatorService.calculateCost(
+              product.price,
+              volumeResult.totalVolume,
+            );
 
       const stockStatus =
         product.stock >= quantity
@@ -166,7 +159,10 @@ ${productsContext}
       const alternatives =
         product.stock >= quantity
           ? []
-          : await this.productsService.findAlternatives(product.category, product.id);
+          : await this.productsService.findAlternatives(
+              product.category,
+              product.id,
+            );
 
       const alternativesText =
         alternatives.length > 0
@@ -180,16 +176,20 @@ ${productsContext}
               .join('; ')}.`
           : '';
 
+      const warehouseStockText = this.formatWarehouseStock(product);
+
       const response =
         `Нашёл товар: ${product.name}. ` +
         `Количество: ${quantity} шт. ` +
         `Объём: ${volumeResult.totalVolume} м³. ` +
         `Стоимость: ${totalCost} ₽. ` +
-        `${stockStatus} ` +
-        `${alternativesText} ` +
-        (lead
-          ? 'Заявка создана, менеджер свяжется с вами.'
-          : 'Если хотите, оставьте телефон — создам заявку для менеджера.');
+        `${stockStatus}\n` +
+`${warehouseStockText}\n` +
+`${alternativesText}` +
+(alternativesText ? '\n' : '') +
+(lead
+  ? 'Заявка создана, менеджер свяжется с вами.'
+  : 'Если хотите, оставьте телефон — создам заявку для менеджера.');
 
       return {
         userMessage: message,
@@ -203,17 +203,7 @@ ${productsContext}
       };
     }
 
-    const productsContext = products
-      .slice(0, 5)
-      .map(
-        (item, index) =>
-          `${index + 1}. ${item.name}
-Категория: ${item.category}
-Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
-Остаток: ${item.stock} ${this.formatUnit(item.unit)}
-Размеры: ${item.height}х${item.width}х${item.length} мм`,
-      )
-      .join('\n\n');
+    const productsContext = this.buildProductsContext(products, 5);
 
     const aiResponse = await this.aiService.ask(
       `Клиент спрашивает: "${message}"
@@ -221,10 +211,11 @@ ${productsContext}
 Вот найденные товары из реального каталога:
 ${productsContext}
 
-Ответь клиенту коротко и по делу. 
-Если товар найден точно — скажи цену и наличие.
-Если есть несколько вариантов — перечисли 2-3 лучших.
-Не говори, что товара нет, если он есть в списке.`,
+Ответь как продавец Пилометра.
+Используй базу знаний Пилометра из system prompt.
+Если клиент спрашивает про стол или столешницу — опирайся на знания о мебельном щите 40 мм, 28 мм и сортах.
+Если клиент спрашивает общую категорию, не просто перечисляй первые товары, а помоги выбрать по задаче.`,
+      productsContext,
     );
 
     return {
@@ -236,6 +227,35 @@ ${productsContext}
       source: 'openai_with_products',
     };
   }
+
+  private buildProductsContext(products: any[], limit: number): string {
+    return products
+      .slice(0, limit)
+      .map(
+        (item, index) =>
+          `${index + 1}. ${item.name}
+Категория: ${item.category}
+Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
+Общий остаток: ${item.stock} ${this.formatUnit(item.unit)}
+Остатки по точкам:
+- Север: ${item.volhovStock} ${this.formatUnit(item.unit)}
+- Марьино: ${item.lomonosovStock} ${this.formatUnit(item.unit)}
+- Рощино: ${item.roshinoStock} ${this.formatUnit(item.unit)}
+- Ладога: ${item.ladogaStock} ${this.formatUnit(item.unit)}
+Размеры: ${item.height}х${item.width}х${item.length} мм`,
+      )
+      .join('\n\n');
+  }
+
+  private formatWarehouseStock(product: any): string {
+  return (
+    `Остатки по точкам:\n` +
+    `📍 Север — ${product.volhovStock} ${this.formatUnit(product.unit)}\n` +
+    `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(product.unit)}\n` +
+    `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(product.unit)}\n` +
+    `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(product.unit)}`
+  );
+}
 
   private extractQuantity(message: string): number | null {
     const normalizedMessage = message
@@ -323,35 +343,34 @@ ${productsContext}
 
     return 'Консультация';
   }
-private buildSearchQuery(message: string): string {
-  const text = message.toLowerCase();
 
-if (
-  text.includes('стол') ||
-  text.includes('столешниц')
-) {
-  return 'щит 40';
+  private buildSearchQuery(message: string): string {
+    const text = message.toLowerCase();
+
+    if (text.includes('стол') || text.includes('столешниц')) {
+      return 'щит 40';
+    }
+
+    if (text.includes('щит')) {
+      return 'щит';
+    }
+
+    if (text.includes('доск')) {
+      return 'дос';
+    }
+
+    if (text.includes('брус')) {
+      return 'брус';
+    }
+
+    if (text.includes('ступ')) {
+      return 'ступень';
+    }
+
+    if (text.includes('слэб')) {
+      return 'слэб';
+    }
+
+    return message;
+  }
 }
-
-if (text.includes('щит')) {
-  return 'щит';
-}
-
-  if (text.includes('доск')) {
-    return 'дос';
-  }
-
-  if (text.includes('брус')) {
-    return 'брус';
-  }
-
-  if (text.includes('ступ')) {
-    return 'ступень';
-  }
-
-  if (text.includes('слэб')) {
-    return 'слэб';
-  }
-
-  return message;
-}}

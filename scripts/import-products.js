@@ -31,6 +31,10 @@ async function main() {
   const activeIndex = index('is-active');
   const priceIndex = index('price');
   const stockIndex = index('common_quantity');
+const severStockIndex = index('volhov_storage');
+const marinoStockIndex = index('lomonosov_storage');
+const roshinoStockIndex = index('roshino_storage');
+const ladogaStockIndex = index('ladoga_storage');                     
   const widthIndex = index('shirina');
   const lengthIndex = index('dlina');
   const heightIndex = index('tolshchina_mm');
@@ -66,6 +70,10 @@ async function main() {
         length: num(row[lengthIndex]),
         price,
         stock: num(row[stockIndex]),
+volhovStock: num(row[severStockIndex]),
+lomonosovStock: num(row[marinoStockIndex]),
+roshinoStock: num(row[roshinoStockIndex]),
+ladogaStock: num(row[ladogaStockIndex]),
         unit: fixText(row[unitIndex]) || 'шт',
         description: fixText(row[descriptionIndex]),
         isActive: Number(row[activeIndex]) === 1,
@@ -89,22 +97,66 @@ async function main() {
     await client.query(
       `
       INSERT INTO products
-        (name, category, "woodType", width, height, length, grade, humidity, price, stock, unit, description, "createdAt", "updatedAt")
-      VALUES
-        ($1, $2, $3, $4, $5, $6, NULL, NULL, $7, $8, $9, $10, NOW(), NOW())
+(
+  name,
+  category,
+  "woodType",
+  width,
+  height,
+  length,
+  grade,
+  humidity,
+  price,
+  stock,
+  "volhovStock",
+  "lomonosovStock",
+  "roshinoStock",
+  "ladogaStock",
+  unit,
+  description,
+  "createdAt",
+  "updatedAt"
+)
+     VALUES
+(
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  NULL,
+  NULL,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  NOW(),
+  NOW()
+)
       `,
       [
-        product.name,
-        product.category,
-        product.woodType,
-        product.width,
-        product.height,
-        product.length,
-        product.price,
-        product.stock,
-        product.unit,
-        product.description,
-      ],
+  product.name,
+  product.category,
+  product.woodType,
+  product.width,
+  product.height,
+  product.length,
+  product.price,
+  product.stock,
+
+  product.volhovStock,
+  product.lomonosovStock,
+  product.roshinoStock,
+  product.ladogaStock,
+
+  product.unit,
+  product.description,
+],
     );
   }
 
