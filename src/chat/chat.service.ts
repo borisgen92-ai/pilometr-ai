@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
+import { detectIntent } from './intent';
+import { MessagesService } from '../messages/messages.service';
 import { ProductsService } from '../products/products.service';
 import { CalculatorService } from '../calculator/calculator.service';
 import { LeadsService } from '../leads/leads.service';
@@ -13,9 +15,189 @@ export class ChatService {
     private readonly calculatorService: CalculatorService,
     private readonly leadsService: LeadsService,
     private readonly aiService: AiService,
+    private readonly messagesService: MessagesService,
   ) {}
 
-  async processMessage(message: string) {
+  async processMessage(message: string, sessionId = 'test-session') {
+    await this.messagesService.saveMessage(sessionId, 'user', message);
+
+    const historyContext =
+      await this.messagesService.buildContext(sessionId);
+
+    const intent = detectIntent(message);
+
+    if (intent === 'delivery') {
+      const aiResponse = await this.aiService.ask(
+        `История диалога:
+${historyContext}
+
+Новое сообщение клиента:
+"${message}"
+
+Клиент спрашивает про доставку или получение заказа.
+
+Ответь как продавец Пилометра.
+Используй правила доставки, самовывоза и транспортной компании из базы знаний.
+Не ищи товар.
+Не называй точную стоимость доставки, если её нет в данных.
+Если нужен расчёт — попроси город доставки и состав заказа.`,
+      );
+
+      return this.saveAndReturn(sessionId, aiResponse, {
+        userMessage: message,
+        sessionId,
+        intent,
+        response: aiResponse,
+        products: [],
+        lead: null,
+        source: 'intent_delivery',
+      });
+    }
+
+    if (intent === 'payment') {
+      const aiResponse = await this.aiService.ask(
+        `История диалога:
+${historyContext}
+
+Новое сообщение клиента:
+"${message}"
+
+Клиент спрашивает про оплату.
+
+Ответь как продавец Пилометра.
+Используй правила оплаты из базы знаний.
+Не ищи товар.
+Объясни кратко и понятно.`,
+      );
+
+      return this.saveAndReturn(sessionId, aiResponse, {
+        userMessage: message,
+        sessionId,
+        intent,
+        response: aiResponse,
+        products: [],
+        lead: null,
+        source: 'intent_payment',
+      });
+    }
+
+    if (intent === 'return') {
+      const aiResponse = await this.aiService.ask(
+        `История диалога:
+${historyContext}
+
+Новое сообщение клиента:
+"${message}"
+
+Клиент спрашивает про возврат или обмен.
+
+Ответь как продавец Пилометра.
+Используй правила возврата из базы знаний.
+Не ищи товар.
+Отвечай спокойно, культурно и по делу.`,
+      );
+
+      return this.saveAndReturn(sessionId, aiResponse, {
+        userMessage: message,
+        sessionId,
+        intent,
+        response: aiResponse,
+        products: [],
+        lead: null,
+        source: 'intent_return',
+      });
+    }
+
+    if (intent === 'consultation') {
+      const aiResponse = await this.aiService.ask(
+        `История диалога:
+${historyContext}
+
+Новое сообщение клиента:
+"${message}"
+
+Клиент просит консультацию.
+
+Ответь как опытный продавец Пилометра.
+Не ищи конкретный товар, если клиент не указал точные размеры или название.
+Сначала помоги разобраться с задачей.
+Задай 1–3 коротких уточняющих вопроса, если данных мало.`,
+      );
+
+      return this.saveAndReturn(sessionId, aiResponse, {
+        userMessage: message,
+        sessionId,
+        intent,
+        response: aiResponse,
+        products: [],
+        lead: null,
+        source: 'intent_consultation',
+      });
+    }
+
+    if (intent === 'contact') {
+      const phone = this.extractPhone(message);
+
+      let lead: Lead | null = null;
+
+      if (phone) {
+        const directInterest = this.cleanProductInterest(message);
+
+const historyInterest =
+  directInterest || this.extractInterestFromHistory(historyContext);
+
+const interest = historyInterest || 'Консультация';
+
+        lead = await this.leadsService.create({
+          phone,
+          source: 'chat',
+          aiSummary: `[Категория: Контакт] ${message}`,
+          productInterest: interest,
+        });
+
+        const response =
+          'Спасибо, номер получил. Передам заявку менеджеру — он свяжется с вами и поможет с заказом.';
+
+        return this.saveAndReturn(sessionId, response, {
+          userMessage: message,
+          sessionId,
+          intent,
+          response,
+          products: [],
+          lead,
+          source: 'intent_contact_created',
+        });
+      }
+
+      const response =
+        'Можете написать номер телефона — передам заявку менеджеру. По вопросам счёта для организаций также можно написать на pilometr@pilometr.ru.';
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        intent,
+        response,
+        products: [],
+        lead: null,
+        source: 'intent_contact',
+      });
+    }
+
+    if (intent === 'order') {
+      const response =
+        'Хорошо, помогу с заказом. Напишите, пожалуйста, какой товар нужен, количество и удобный способ получения: самовывоз или отправка транспортной компанией.';
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        intent,
+        response,
+        products: [],
+        lead: null,
+        source: 'intent_order',
+      });
+    }
+
     const quantity = this.extractQuantity(message);
     const dimensions = this.extractDimensions(message);
     const phone = this.extractPhone(message);
@@ -66,34 +248,46 @@ export class ChatService {
         lead = await this.leadsService.create({
           phone,
           source: 'chat',
-          aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
-          productInterest: message
-            .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-            .replace(/телефон[:\s]*/gi, '')
-            .trim()
-            .slice(0, 100),
+          aiSummary: `[Категория: ${this.detectLeadCategory(
+            message,
+          )}] ${message}`,
+          productInterest: this.cleanProductInterest(message),
         });
       }
 
-      const aiResponse = await this.aiService.ask(message, catalogContext);
+      const aiResponse = await this.aiService.ask(
+        `История диалога:
+${historyContext}
 
-      return {
+Новое сообщение клиента:
+${message}`,
+        catalogContext,
+      );
+
+      const response =
+        aiResponse +
+        (lead ? ' Заявка создана. Менеджер свяжется с вами.' : '');
+
+      return this.saveAndReturn(sessionId, response, {
         userMessage: message,
+        sessionId,
         searchQuery,
-        response:
-          aiResponse +
-          (lead ? ' Заявка создана. Менеджер свяжется с вами.' : ''),
+        response,
         products: [],
         lead,
         source: 'openai_with_catalog',
-      };
+      });
     }
 
     if (!dimensions && products.length > 0) {
       const productsContext = this.buildProductsContext(products, 10);
 
       const aiResponse = await this.aiService.ask(
-        `Клиент спрашивает: "${message}"
+        `История диалога:
+${historyContext}
+
+Клиент спрашивает:
+"${message}"
 
 Найденные товары из каталога:
 ${productsContext}
@@ -104,14 +298,15 @@ ${productsContext}
         productsContext,
       );
 
-      return {
+      return this.saveAndReturn(sessionId, aiResponse, {
         userMessage: message,
+        sessionId,
         searchQuery,
         response: aiResponse,
         products,
         lead: null,
         source: 'openai_with_catalog_and_knowledge',
-      };
+      });
     }
 
     const product = products[0];
@@ -122,22 +317,21 @@ ${productsContext}
       lead = await this.leadsService.create({
         phone,
         source: 'chat',
-        aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
-        productInterest: message
-          .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-          .replace(/телефон[:\s]*/gi, '')
-          .trim()
-          .slice(0, 100),
+        aiSummary: `[Категория: ${this.detectLeadCategory(
+          message,
+        )}] ${message}`,
+        productInterest: this.cleanProductInterest(message),
       });
     }
 
     if (quantity && dimensions) {
-      const volumeResult = this.calculatorService.calculateWoodVolume(
-        dimensions.width,
-        dimensions.height,
-        dimensions.length,
-        quantity,
-      );
+      const volumeResult =
+        this.calculatorService.calculateWoodVolume(
+          dimensions.width,
+          dimensions.height,
+          dimensions.length,
+          quantity,
+        );
 
       const totalCost =
         product.unit === 'шт'
@@ -176,7 +370,8 @@ ${productsContext}
               .join('; ')}.`
           : '';
 
-      const warehouseStockText = this.formatWarehouseStock(product);
+      const warehouseStockText =
+        this.formatWarehouseStock(product);
 
       const response =
         `Нашёл товар: ${product.name}. ` +
@@ -184,15 +379,16 @@ ${productsContext}
         `Объём: ${volumeResult.totalVolume} м³. ` +
         `Стоимость: ${totalCost} ₽. ` +
         `${stockStatus}\n` +
-`${warehouseStockText}\n` +
-`${alternativesText}` +
-(alternativesText ? '\n' : '') +
-(lead
-  ? 'Заявка создана, менеджер свяжется с вами.'
-  : 'Если хотите, оставьте телефон — создам заявку для менеджера.');
+        `${warehouseStockText}\n` +
+        `${alternativesText}` +
+        (alternativesText ? '\n' : '') +
+        (lead
+          ? 'Заявка создана, менеджер свяжется с вами.'
+          : 'Если хотите, оставьте телефон — создам заявку для менеджера.');
 
-      return {
+      return this.saveAndReturn(sessionId, response, {
         userMessage: message,
+        sessionId,
         searchQuery,
         response,
         product,
@@ -200,13 +396,17 @@ ${productsContext}
         totalCost,
         lead,
         source: 'rules',
-      };
+      });
     }
 
     const productsContext = this.buildProductsContext(products, 5);
 
     const aiResponse = await this.aiService.ask(
-      `Клиент спрашивает: "${message}"
+      `История диалога:
+${historyContext}
+
+Клиент спрашивает:
+"${message}"
 
 Вот найденные товары из реального каталога:
 ${productsContext}
@@ -218,14 +418,49 @@ ${productsContext}
       productsContext,
     );
 
-    return {
+    return this.saveAndReturn(sessionId, aiResponse, {
       userMessage: message,
+      sessionId,
       searchQuery,
       response: aiResponse,
       products,
       lead,
       source: 'openai_with_products',
-    };
+    });
+  }
+
+private async saveAndReturn(
+  sessionId: string,
+  response: string | null,
+  data: any,
+) {
+  const safeResponse =
+    response || 'Не смог подготовить ответ. Передам вопрос менеджеру.';
+
+  await this.messagesService.saveMessage(
+    sessionId,
+    'assistant',
+    safeResponse,
+  );
+
+  return {
+    ...data,
+    response: safeResponse,
+  };
+}
+
+  private cleanProductInterest(message: string): string {
+    return message
+      .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+      .replace(/телефон[:\s]*/gi, '')
+      .replace(/мой/gi, '')
+      .replace(/беру/gi, '')
+      .replace(/хочу купить/gi, '')
+      .replace(/оформить/gi, '')
+      .replace(/заказать/gi, '')
+      .replace(/[,.]/g, '')
+      .trim()
+      .slice(0, 100);
   }
 
   private buildProductsContext(products: any[], limit: number): string {
@@ -248,14 +483,22 @@ ${productsContext}
   }
 
   private formatWarehouseStock(product: any): string {
-  return (
-    `Остатки по точкам:\n` +
-    `📍 Север — ${product.volhovStock} ${this.formatUnit(product.unit)}\n` +
-    `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(product.unit)}\n` +
-    `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(product.unit)}\n` +
-    `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(product.unit)}`
-  );
-}
+    return (
+      `Остатки по точкам:\n` +
+      `📍 Север — ${product.volhovStock} ${this.formatUnit(
+        product.unit,
+      )}\n` +
+      `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(
+        product.unit,
+      )}\n` +
+      `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(
+        product.unit,
+      )}\n` +
+      `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(
+        product.unit,
+      )}`
+    );
+  }
 
   private extractQuantity(message: string): number | null {
     const normalizedMessage = message
@@ -287,7 +530,9 @@ ${productsContext}
       .replace(/Х/g, 'x')
       .replace(/\*/g, 'x');
 
-    const match = normalizedMessage.match(/(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/i);
+    const match = normalizedMessage.match(
+      /(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/i,
+    );
 
     if (!match) {
       return null;
@@ -372,5 +617,56 @@ ${productsContext}
     }
 
     return message;
+  }
+  
+
+  private extractInterestFromHistory(historyContext: string): string {
+    const text = historyContext.toLowerCase();
+
+    const parts: string[] = [];
+
+    if (text.includes('слэб')) {
+      parts.push('Слэб');
+    }
+
+    const dimensionsMatch = historyContext.match(
+      /(\d{2,3})[хx](\d{2,3})[хx](\d{3,4})/,
+    );
+
+    if (dimensionsMatch) {
+      parts.push(dimensionsMatch[0]);
+    }
+
+    const quantityMatches = [
+  ...historyContext.matchAll(
+    /(\d+)\s*(шт|штук|штуки)/gi,
+  ),
+];
+
+const clientQuantityMatch = quantityMatches.find(
+  (match) => Number(match[1]) < 100,
+);
+
+if (clientQuantityMatch) {
+  parts.push(`${clientQuantityMatch[1]} шт`);
+}
+
+    if (text.includes('рощино')) {
+      parts.push('Рощино');
+    }
+
+    if (text.includes('север')) {
+      parts.push('Север');
+    }
+
+    if (text.includes('марьино')) {
+      parts.push('Марьино');
+    }
+
+    if (text.includes('ладога')) {
+      parts.push('Ладога');
+    }
+
+    return parts.length > 0 ? parts.join(', ') : '';
   }
 }

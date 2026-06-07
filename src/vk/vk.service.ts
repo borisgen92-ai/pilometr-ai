@@ -27,4 +27,15 @@ export class VkService {
 
     return data;
   }
+
+  async sendManagerNotification(message: string) {
+    const managerPeerId = process.env.VK_MANAGER_PEER_ID;
+
+    if (!managerPeerId) {
+      console.log('VK_MANAGER_PEER_ID не указан');
+      return null;
+    }
+
+    return this.sendMessage(Number(managerPeerId), message);
+  }
 }

@@ -7,12 +7,13 @@ export class ChatController {
     private readonly chatService: ChatService,
   ) {}
 
-  @Post()
-  async chat(
-    @Body() body: { message: string },
-  ) {
-    return this.chatService.processMessage(
-      body.message,
-    );
-  }
+@Post()
+async chat(
+  @Body() body: { message: string; sessionId?: string },
+) {
+  return this.chatService.processMessage(
+    body.message,
+    body.sessionId || 'test-session',
+  );
+}
 }

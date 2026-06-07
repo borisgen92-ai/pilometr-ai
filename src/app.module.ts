@@ -8,6 +8,8 @@ import { ProductsModule } from './products/products.module';
 import { CalculatorModule } from './calculator/calculator.module';
 import { ChatModule } from './chat/chat.module';
 import { VkModule } from './vk/vk.module';
+import { MessagesModule } from './messages/messages.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -21,7 +23,6 @@ import { VkModule } from './vk/vk.module';
       username: process.env.DATABASE_USER,
       password: process.env.DATABASE_PASSWORD,
       database: process.env.DATABASE_NAME,
-
       autoLoadEntities: true,
       synchronize: true,
     }),
@@ -32,6 +33,7 @@ import { VkModule } from './vk/vk.module';
     CalculatorModule,
     ChatModule,
     VkModule,
+    MessagesModule,
   ],
 })
 export class AppModule {}
