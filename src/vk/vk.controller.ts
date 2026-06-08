@@ -67,17 +67,20 @@ export class VkController {
       );
 
       if (aiAnswer.lead) {
-        const lead = aiAnswer.lead;
+const lead = aiAnswer.lead as any;
+    await this.vkService.sendManagerNotification(
+  `🔥 Новая заявка из VK
 
-        await this.vkService.sendManagerNotification(
-          `🔥 Новая заявка из VK
-
+Имя: ${lead.clientName || 'Не указано'}
 Телефон: ${lead.phone}
 Интерес: ${lead.productInterest || 'Не указан'}
-Сообщение клиента: ${text}
+
+Сообщение клиента:
+${text}
+
 Источник: VK
 ID диалога: ${sessionId}`,
-        );
+);
       }
 
       return 'ok';

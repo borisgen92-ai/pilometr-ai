@@ -26,6 +26,28 @@ export class ChatService {
 
     const intent = detectIntent(message);
 
+    const needsClarification = this.needsProductClarification(message);
+
+if (needsClarification) {
+  const response =
+    'Уточните, пожалуйста, какой именно товар вас интересует:\n\n' +
+    '• размер или толщина;\n' +
+    '• сорт, если важен внешний вид;\n' +
+    '• нужное количество;\n' +
+    '• магазин для самовывоза, если нужен конкретный склад.\n\n' +
+    'После этого посмотрю наличие по нужной точке.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    intent,
+    response,
+    products: [],
+    lead: null,
+    source: 'rules_need_product_clarification',
+  });
+}
+
     if (intent === 'delivery') {
       const aiResponse = await this.aiService.ask(
         `История диалога:
@@ -141,19 +163,29 @@ ${historyContext}
       let lead: Lead | null = null;
 
       if (phone) {
-        const directInterest = this.cleanProductInterest(message);
+      const directInterest = this.cleanProductInterest(message);
+
+const looksLikeOnlyName =
+  directInterest.length > 0 &&
+  !this.hasProductWords(directInterest);
 
 const historyInterest =
-  directInterest || this.extractInterestFromHistory(historyContext);
+  this.extractInterestFromHistory(historyContext);
 
-const interest = historyInterest || 'Консультация';
+const interest =
+  !looksLikeOnlyName && directInterest
+    ? directInterest
+    : historyInterest || 'Консультация';
 
-        lead = await this.leadsService.create({
-          phone,
-          source: 'chat',
-          aiSummary: `[Категория: Контакт] ${message}`,
-          productInterest: interest,
-        });
+    const clientName = this.extractClientName(message);
+
+lead = await this.leadsService.create({
+  phone,
+  clientName: clientName || undefined,
+  source: 'chat',
+  aiSummary: `[Категория: Контакт] ${message}`,
+  productInterest: interest,
+});
 
         const response =
           'Спасибо, номер получил. Передам заявку менеджеру — он свяжется с вами и поможет с заказом.';
@@ -399,6 +431,22 @@ ${productsContext}
       });
     }
 
+    let filteredProducts = products;
+
+const wantsExtra =
+  message.toLowerCase().includes('без сучков') ||
+  message.toLowerCase().includes('чистый внешний вид') ||
+  message.toLowerCase().includes('красивый внешний вид') ||
+  message.toLowerCase().includes('премиальный');
+
+if (wantsExtra) {
+  filteredProducts = products.filter(
+    (p) =>
+      p.name.toLowerCase().includes('сорт э') ||
+      p.name.toLowerCase().includes('экстра'),
+  );
+}
+
     const productsContext = this.buildProductsContext(products, 5);
 
     const aiResponse = await this.aiService.ask(
@@ -449,19 +497,23 @@ private async saveAndReturn(
   };
 }
 
-  private cleanProductInterest(message: string): string {
-    return message
-      .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-      .replace(/телефон[:\s]*/gi, '')
-      .replace(/мой/gi, '')
-      .replace(/беру/gi, '')
-      .replace(/хочу купить/gi, '')
-      .replace(/оформить/gi, '')
-      .replace(/заказать/gi, '')
-      .replace(/[,.]/g, '')
-      .trim()
-      .slice(0, 100);
-  }
+private cleanProductInterest(message: string): string {
+  return message
+    .split('\n')
+    .filter((line) => !/(\+?\d[\d\s\-()]{8,}\d)/.test(line))
+    .join(' ')
+    .replace(/мой телефон.*$/gi, '')
+    .replace(/телефон.*$/gi, '')
+    .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+    .replace(/мой/gi, '')
+    .replace(/беру/gi, '')
+    .replace(/хочу купить/gi, '')
+    .replace(/оформить/gi, '')
+    .replace(/заказать/gi, '')
+    .replace(/[,.]/g, '')
+    .trim()
+    .slice(0, 100);
+}
 
   private buildProductsContext(products: any[], limit: number): string {
     return products
@@ -512,7 +564,7 @@ private async saveAndReturn(
     );
 
     const match = withoutDimensions.match(
-      /(\d+)\s*(шт|штук|досок|доски|доска|бруса|брус|брусьев)/i,
+    /(\d+)\s*(шт|штук|штуки|щит|щита|щитов|досок|доски|доска|бруса|брус|брусьев|слэб|слэба|слэбов|ступеней|ступени|ступень)/i,
     );
 
     if (!match) {
@@ -554,6 +606,23 @@ private async saveAndReturn(
 
     return match[1].replace(/\s/g, '');
   }
+  private extractClientName(message: string): string | null {
+  const lines = message.split('\n');
+
+  const phoneLine = lines.find((line) =>
+    /(\+?\d[\d\s\-()]{8,}\d)/.test(line),
+  );
+
+  if (!phoneLine) {
+    return null;
+  }
+
+  const name = phoneLine
+    .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+    .trim();
+
+  return name || null;
+}
 
   private formatUnit(unit: string): string {
     if (unit === 'm3') {
@@ -669,4 +738,53 @@ if (clientQuantityMatch) {
 
     return parts.length > 0 ? parts.join(', ') : '';
   }
+private needsProductClarification(message: string): boolean {
+  const text = message.toLowerCase();
+
+  const asksCleanGrade =
+    text.includes('без сучков') ||
+    text.includes('без сучка') ||
+    text.includes('экстра') ||
+    text.includes('сорт э');
+
+  if (asksCleanGrade) {
+    return false;
+  }
+
+  const asksAvailability =
+    text.includes('есть') ||
+    text.includes('сколько') ||
+    text.includes('налич') ||
+    text.includes('остат');
+
+  const hasCategory =
+    text.includes('щит') ||
+    text.includes('брус') ||
+    text.includes('доск') ||
+    text.includes('слэб') ||
+    text.includes('ступ') ||
+    text.includes('тетив') ||
+    text.includes('поруч') ||
+    text.includes('баляс');
+
+  const hasExactSize = /\d+\s*[xх]\s*\d+/.test(text);
+
+  return asksAvailability && hasCategory && !hasExactSize;
+}
+private hasProductWords(text: string): boolean {
+  const value = text.toLowerCase();
+
+  return (
+    value.includes('щит') ||
+    value.includes('слэб') ||
+    value.includes('доск') ||
+    value.includes('брус') ||
+    value.includes('ступ') ||
+    value.includes('тетив') ||
+    value.includes('поруч') ||
+    value.includes('баляс') ||
+    value.includes('мульч') ||
+    value.includes('брикет')
+  );
+}
 }

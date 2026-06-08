@@ -18,7 +18,7 @@ export class MessagesService {
     });
   }
 
-  async getRecentMessages(sessionId: string, limit = 10) {
+  async getRecentMessages(sessionId: string, limit = 6) {
     return this.messagesRepository.find({
       where: { sessionId },
       order: { createdAt: 'DESC' },
@@ -27,7 +27,7 @@ export class MessagesService {
   }
 
   async buildContext(sessionId: string) {
-    const messages = await this.getRecentMessages(sessionId, 10);
+    const messages = await this.getRecentMessages(sessionId, 6);
 
     return messages
       .reverse()
