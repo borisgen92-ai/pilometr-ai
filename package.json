@@ -25,6 +25,7 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/typeorm": "^11.0.1",
+    "csv-parse": "^6.2.1",
     "iconv-lite": "^0.7.2",
     "openai": "^6.41.0",
     "pg": "^8.21.0",

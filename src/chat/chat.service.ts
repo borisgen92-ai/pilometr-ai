@@ -231,9 +231,14 @@ lead = await this.leadsService.create({
     }
 
     const quantity = this.extractQuantity(message);
-    const dimensions = this.extractDimensions(message);
-    const phone = this.extractPhone(message);
-    const searchQuery = this.buildSearchQuery(message);
+const dimensions = this.extractDimensions(message);
+const phone = this.extractPhone(message);
+
+const normalizedMessage = message
+  .replace(/экстра/gi, 'Э')
+  .replace(/сорт\s+э\b/gi, 'сорт Э');
+
+const searchQuery = this.buildSearchQuery(normalizedMessage);
 
     let products;
 
@@ -242,11 +247,79 @@ lead = await this.leadsService.create({
         dimensions.width,
         dimensions.height,
         dimensions.length,
-        message,
+        normalizedMessage,
       );
     } else {
       products = await this.productsService.search(searchQuery);
     }
+const asksStockOrPrice =
+  message.toLowerCase().includes('сколько') ||
+  message.toLowerCase().includes('есть') ||
+  message.toLowerCase().includes('налич') ||
+  message.toLowerCase().includes('остат') ||
+  message.toLowerCase().includes('цена') ||
+  message.toLowerCase().includes('стоит');
+
+if (products.length > 0 && asksStockOrPrice) {
+  const lowerMessage = message.toLowerCase();
+
+  if (
+    lowerMessage.includes('экстра') ||
+    lowerMessage.includes('сорт э')
+  ) {
+    const extraProduct = products.find((p) =>
+      p.name.toLowerCase().includes('сорт э'),
+    );
+
+    if (extraProduct) {
+      products = [extraProduct];
+    }
+  }
+
+  if (lowerMessage.includes('сорт в')) {
+    const bProduct = products.find((p) =>
+      p.name.toLowerCase().includes('сорт в'),
+    );
+
+    if (bProduct) {
+      products = [bProduct];
+    }
+  }
+
+  if (lowerMessage.includes('сорт а')) {
+    const aProduct = products.find((p) =>
+      p.name.toLowerCase().includes('сорт а'),
+    );
+
+    if (aProduct) {
+      products = [aProduct];
+    }
+  }
+
+  const product = products[0];
+
+  const response =
+    `Нашёл товар: ${product.name}.\n` +
+    `Цена: ${product.price} ₽/${this.formatUnit(product.unit)}.\n` +
+    `Всего в наличии: ${product.stock} ${this.formatUnit(product.unit)}.\n\n` +
+    `Остатки по точкам:\n` +
+    `📍 Волхов (завод) — ${product.volhovStock} ${this.formatUnit(product.unit)}\n` +
+`📍 Север — ${product.skotnoeStock} ${this.formatUnit(product.unit)}\n` +
+    `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(product.unit)}\n` +
+    `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(product.unit)}\n` +
+    `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(product.unit)}`;
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    searchQuery,
+    response,
+    products,
+    lead: null,
+    source: 'rules_stock_price',
+  });
+}
+
 
     if (products.length === 0) {
       const allProducts = await this.productsService.findAll();
@@ -312,6 +385,11 @@ ${message}`,
     }
 
     if (!dimensions && products.length > 0) {
+        console.log('FOUND PRODUCTS:', products.length);
+
+if (products.length > 0) {
+  console.log('FIRST PRODUCT:', products[0]);
+}
       const productsContext = this.buildProductsContext(products, 10);
 
       const aiResponse = await this.aiService.ask(
@@ -433,13 +511,13 @@ ${productsContext}
 
     let filteredProducts = products;
 
-const wantsExtra =
+const wantsPremiumLook =
   message.toLowerCase().includes('без сучков') ||
   message.toLowerCase().includes('чистый внешний вид') ||
   message.toLowerCase().includes('красивый внешний вид') ||
   message.toLowerCase().includes('премиальный');
 
-if (wantsExtra) {
+if (wantsPremiumLook) {
   filteredProducts = products.filter(
     (p) =>
       p.name.toLowerCase().includes('сорт э') ||
@@ -460,6 +538,16 @@ ${historyContext}
 ${productsContext}
 
 Ответь как продавец Пилометра.
+
+ВАЖНО:
+Если клиент спрашивает про конкретный склад:
+- Север = используй только остаток после строки "📍 Север".
+- Марьино = используй только остаток после строки "📍 Марьино".
+- Рощино = используй только остаток после строки "📍 Рощино".
+- Ладога = используй только остаток после строки "📍 Ладога".
+
+Никогда не называй общий остаток по всем точкам остатком конкретного склада.
+
 Используй базу знаний Пилометра из system prompt.
 Если клиент спрашивает про стол или столешницу — опирайся на знания о мебельном щите 40 мм, 28 мм и сортах.
 Если клиент спрашивает общую категорию, не просто перечисляй первые товары, а помоги выбрать по задаче.`,
@@ -516,23 +604,24 @@ private cleanProductInterest(message: string): string {
 }
 
   private buildProductsContext(products: any[], limit: number): string {
-    return products
-      .slice(0, limit)
-      .map(
-        (item, index) =>
-          `${index + 1}. ${item.name}
+  return products
+    .slice(0, limit)
+    .map(
+      (item, index) =>
+        `${index + 1}. ${item.name}
 Категория: ${item.category}
 Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
-Общий остаток: ${item.stock} ${this.formatUnit(item.unit)}
+Общий остаток по всем точкам: ${item.stock} ${this.formatUnit(item.unit)}
 Остатки по точкам:
-- Север: ${item.volhovStock} ${this.formatUnit(item.unit)}
-- Марьино: ${item.lomonosovStock} ${this.formatUnit(item.unit)}
-- Рощино: ${item.roshinoStock} ${this.formatUnit(item.unit)}
-- Ладога: ${item.ladogaStock} ${this.formatUnit(item.unit)}
+📍 Волхов (завод) — ${item.volhovStock}
+📍 Север — ${item.skotnoeStock}
+📍 Марьино — ${item.lomonosovStock} ${this.formatUnit(item.unit)}
+📍 Рощино — ${item.roshinoStock} ${this.formatUnit(item.unit)}
+📍 Ладога — ${item.ladogaStock} ${this.formatUnit(item.unit)}
 Размеры: ${item.height}х${item.width}х${item.length} мм`,
-      )
-      .join('\n\n');
-  }
+    )
+    .join('\n\n');
+}
 
   private formatWarehouseStock(product: any): string {
     return (

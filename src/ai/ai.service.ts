@@ -7,9 +7,10 @@ import { CATALOG_RULES } from '../knowledge/catalog-rules';
 @Injectable()
 export class AiService {
   private openai = new OpenAI({
-    apiKey: process.env.VSEGPT_API_KEY,
-    baseURL: process.env.VSEGPT_BASE_URL,
-  });
+  apiKey: process.env.VSEGPT_API_KEY,
+  baseURL: process.env.VSEGPT_BASE_URL,
+  timeout: 90000, // 60 секунд
+});
 
   async ask(message: string, catalogContext?: string) {
     try {
@@ -40,6 +41,19 @@ export class AiService {
 8. Не спорь с клиентом.
 9. Не пиши слишком длинные ответы без необходимости.
 10. Если клиент спрашивает просто — отвечай просто.
+
+РАБОТА С ОСТАТКАМИ:
+
+Если клиент спрашивает про конкретный склад:
+
+- Север = используй только остаток склада Север.
+- Марьино = используй только остаток склада Марьино.
+- Рощино = используй только остаток склада Рощино.
+- Ладога = используй только остаток склада Ладога.
+
+Никогда не называй общий остаток товара остатком конкретного склада.
+
+Если данных по складу нет — сообщи об этом честно.
 
 ВАЖНОЕ ПРАВИЛО ПРО КОНТЕКСТ:
 - Контекст прошлых сообщений нужен только для понимания диалога.

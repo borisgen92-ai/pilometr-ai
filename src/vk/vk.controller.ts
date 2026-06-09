@@ -66,10 +66,26 @@ export class VkController {
           'Спасибо за сообщение! Сейчас уточню информацию.',
       );
 
-      if (aiAnswer.lead) {
-const lead = aiAnswer.lead as any;
-    await this.vkService.sendManagerNotification(
-  `🔥 Новая заявка из VK
+            if (aiAnswer.lead) {
+        const lead = aiAnswer.lead as any;
+
+        const cleanedText = text
+          .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+          .replace(/телефон[:\s]*/gi, '')
+          .trim();
+
+        const nameMatch = cleanedText.match(/([А-ЯЁ][а-яё]+)\s*$/);
+
+        if (
+  !lead.clientName ||
+  lead.clientName.trim() === '' ||
+  lead.clientName.toLowerCase().includes('телефон')
+) {
+  lead.clientName = nameMatch?.[1] || '';
+}
+
+        await this.vkService.sendManagerNotification(
+          `🔥 Новая заявка из VK
 
 Имя: ${lead.clientName || 'Не указано'}
 Телефон: ${lead.phone}
@@ -80,7 +96,7 @@ ${text}
 
 Источник: VK
 ID диалога: ${sessionId}`,
-);
+        );
       }
 
       return 'ok';
