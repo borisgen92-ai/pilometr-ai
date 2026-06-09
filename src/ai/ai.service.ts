@@ -7,20 +7,25 @@ import { CATALOG_RULES } from '../knowledge/catalog-rules';
 @Injectable()
 export class AiService {
   private openai = new OpenAI({
-  apiKey: process.env.VSEGPT_API_KEY,
-  baseURL: process.env.VSEGPT_BASE_URL,
-  timeout: 90000, // 60 секунд
-});
+    apiKey: process.env.VSEGPT_API_KEY,
+    baseURL: process.env.VSEGPT_BASE_URL,
+    timeout: 90000, // 90 секунд
+    maxRetries: 1,
+  });
 
   async ask(message: string, catalogContext?: string) {
-    try {
-      const response = await this.openai.chat.completions.create({
-        model: process.env.VSEGPT_MODEL || 'openai/gpt-4o-mini',
-        temperature: 0.4,
-        messages: [
-          {
-            role: 'system',
-            content: `
+    const fallback =
+      'Сейчас не получилось получить ответ от AI. Можете повторить вопрос или оставить телефон — менеджер поможет.';
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await this.openai.chat.completions.create({
+          model: process.env.VSEGPT_MODEL || 'openai/gpt-4o-mini',
+          temperature: 0.4,
+          messages: [
+            {
+              role: 'system',
+              content: `
 Ты ИИ-продавец-консультант компании «Пилометр» — магазина товаров из дерева.
 
 Твоя задача:
@@ -50,8 +55,10 @@ export class AiService {
 - Марьино = используй только остаток склада Марьино.
 - Рощино = используй только остаток склада Рощино.
 - Ладога = используй только остаток склада Ладога.
+- Волхов = центральный склад / завод, не путать с Севером.
 
 Никогда не называй общий остаток товара остатком конкретного склада.
+Никогда не называй остаток Волхова остатком Севера.
 
 Если данных по складу нет — сообщи об этом честно.
 
@@ -158,20 +165,31 @@ ${PILOMETR_KNOWLEDGE}
 - интересуется сроками доставки;
 - уточняет варианты получения товара.
 `,
-          },
-          {
-            role: 'user',
-            content: catalogContext
-              ? `Каталог товаров:\n${catalogContext}\n\nНовое сообщение клиента:\n${message}`
-              : `Новое сообщение клиента:\n${message}`,
-          },
-        ],
-      });
+            },
+            {
+              role: 'user',
+              content: catalogContext
+                ? `Каталог товаров:\n${catalogContext}\n\nНовое сообщение клиента:\n${message}`
+                : `Новое сообщение клиента:\n${message}`,
+            },
+          ],
+        });
 
-      return response.choices[0].message.content;
-    } catch (error) {
-      console.error('VSEGPT ERROR:', error);
-      return 'Сейчас не получилось обработать сообщение. Попробуйте ещё раз или оставьте телефон — менеджер поможет.';
+        return (
+          response.choices[0]?.message?.content ||
+          'Не смог сформировать ответ. Уточните, пожалуйста, вопрос.'
+        );
+      } catch (error) {
+        console.error(`VSEGPT ERROR attempt ${attempt}:`, error);
+
+        if (attempt === 2) {
+          return fallback;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
     }
+
+    return fallback;
   }
 }
