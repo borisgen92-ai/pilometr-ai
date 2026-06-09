@@ -19,6 +19,14 @@ export class ChatService {
   ) {}
 
   async processMessage(message: string, sessionId = 'test-session') {
+    const cleanMessage = message.trim().toLowerCase();
+
+if (cleanMessage === 'тест') {
+  return {
+    response: 'Связь работает. Бот Пилометр на месте 👍',
+    lead: null,
+  };
+}
     await this.messagesService.saveMessage(sessionId, 'user', message);
 
     const historyContext =
