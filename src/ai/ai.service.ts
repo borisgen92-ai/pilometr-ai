@@ -7,15 +7,15 @@ import { CATALOG_RULES } from '../knowledge/catalog-rules';
 @Injectable()
 export class AiService {
   private openai = new OpenAI({
-    apiKey: process.env.VSEGPT_API_KEY,
-    baseURL: process.env.VSEGPT_BASE_URL,
-    timeout: 90000, // 90 секунд
-    maxRetries: 1,
-  });
+  apiKey: process.env.VSEGPT_API_KEY,
+  baseURL: process.env.VSEGPT_BASE_URL,
+  timeout: 25000,
+  maxRetries: 0,
+});
 
   async ask(message: string, catalogContext?: string) {
     const fallback =
-      'Сейчас не получилось получить ответ от AI. Можете повторить вопрос или оставить телефон — менеджер поможет.';
+  'Сейчас ответ немного задерживается. Можете написать размер или задачу — менеджер подскажет точнее.';
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {

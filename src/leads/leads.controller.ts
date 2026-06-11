@@ -46,5 +46,17 @@ export class LeadsController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.leadsService.remove(id);
+  }  @Post(':id/notes')
+  addNote(
+    @Param('id') id: string,
+    @Body('text') text: string,
+    @Body('authorName') authorName?: string,
+  ) {
+    return this.leadsService.addNote(id, text, authorName);
+  }
+
+  @Get(':id/notes')
+  getNotes(@Param('id') id: string) {
+    return this.leadsService.getNotes(id);
   }
 }

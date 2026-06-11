@@ -21,12 +21,33 @@ export class ChatService {
   async processMessage(message: string, sessionId = 'test-session') {
     const cleanMessage = message.trim().toLowerCase();
 
-if (cleanMessage === 'тест') {
+    if (cleanMessage.includes('мульч')) {
   return {
-    response: 'Связь работает. Бот Пилометр на месте 👍',
+    response:
+      'Для декоративной отсыпки и защиты почвы лучше подойдёт древесная мульча из сосны. Она помогает удерживать влагу, уменьшает рост сорняков и аккуратно смотрится на участке. Если важен внешний вид — выбирайте более чистую и ровную фракцию. Если задача больше практическая — можно взять обычную древесную мульчу.',
     lead: null,
   };
 }
+
+    if (cleanMessage === 'тест') {
+      return {
+        response: 'Связь работает. Бот Пилометр на месте 👍',
+        lead: null,
+      };
+    }
+
+    if (
+      cleanMessage === 'привет' ||
+      cleanMessage === 'здравствуйте' ||
+      cleanMessage === 'добрый день'
+    ) {
+      return {
+        response:
+          'Здравствуйте! Я помощник Пилометра. Могу подсказать наличие, цену, размеры или помочь подобрать товар.',
+        lead: null,
+      };
+    }
+
     await this.messagesService.saveMessage(sessionId, 'user', message);
 
     const historyContext =
@@ -36,14 +57,31 @@ if (cleanMessage === 'тест') {
 
     const needsClarification = this.needsProductClarification(message);
 
-if (needsClarification) {
+    if (needsClarification) {
+      const response =
+        'Уточните, пожалуйста, какой именно товар вас интересует:\n\n' +
+        '• размер или толщина;\n' +
+        '• сорт, если важен внешний вид;\n' +
+        '• нужное количество;\n' +
+        '• магазин для самовывоза, если нужен конкретный склад.\n\n' +
+        'После этого посмотрю наличие по нужной точке.';
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        intent,
+        response,
+        products: [],
+        lead: null,
+        source: 'rules_need_product_clarification',
+      });
+    }
+
+    if (intent === 'delivery') {
   const response =
-    'Уточните, пожалуйста, какой именно товар вас интересует:\n\n' +
-    '• размер или толщина;\n' +
-    '• сорт, если важен внешний вид;\n' +
-    '• нужное количество;\n' +
-    '• магазин для самовывоза, если нужен конкретный склад.\n\n' +
-    'После этого посмотрю наличие по нужной точке.';
+    'Доставка рассчитывается индивидуально: зависит от города, объёма и состава заказа. ' +
+    'По Москве можем отправить транспортной компанией. ' +
+    'Напишите, пожалуйста, какой товар и количество нужны — менеджер рассчитает точную стоимость доставки.';
 
   return this.saveAndReturn(sessionId, response, {
     userMessage: message,
@@ -52,37 +90,9 @@ if (needsClarification) {
     response,
     products: [],
     lead: null,
-    source: 'rules_need_product_clarification',
+    source: 'rules_delivery',
   });
 }
-
-    if (intent === 'delivery') {
-      const aiResponse = await this.aiService.ask(
-        `История диалога:
-${historyContext}
-
-Новое сообщение клиента:
-"${message}"
-
-Клиент спрашивает про доставку или получение заказа.
-
-Ответь как продавец Пилометра.
-Используй правила доставки, самовывоза и транспортной компании из базы знаний.
-Не ищи товар.
-Не называй точную стоимость доставки, если её нет в данных.
-Если нужен расчёт — попроси город доставки и состав заказа.`,
-      );
-
-      return this.saveAndReturn(sessionId, aiResponse, {
-        userMessage: message,
-        sessionId,
-        intent,
-        response: aiResponse,
-        products: [],
-        lead: null,
-        source: 'intent_delivery',
-      });
-    }
 
     if (intent === 'payment') {
       const aiResponse = await this.aiService.ask(
@@ -171,29 +181,29 @@ ${historyContext}
       let lead: Lead | null = null;
 
       if (phone) {
-      const directInterest = this.cleanProductInterest(message);
+        const directInterest = this.cleanProductInterest(message);
 
-const looksLikeOnlyName =
-  directInterest.length > 0 &&
-  !this.hasProductWords(directInterest);
+        const looksLikeOnlyName =
+          directInterest.length > 0 &&
+          !this.hasProductWords(directInterest);
 
-const historyInterest =
-  this.extractInterestFromHistory(historyContext);
+        const historyInterest =
+          this.extractInterestFromHistory(historyContext);
 
-const interest =
-  !looksLikeOnlyName && directInterest
-    ? directInterest
-    : historyInterest || 'Консультация';
+        const interest =
+          !looksLikeOnlyName && directInterest
+            ? directInterest
+            : historyInterest || 'Консультация';
 
-    const clientName = this.extractClientName(message);
+        const clientName = this.extractClientName(message);
 
-lead = await this.leadsService.create({
-  phone,
-  clientName: clientName || undefined,
-  source: 'chat',
-  aiSummary: `[Категория: Контакт] ${message}`,
-  productInterest: interest,
-});
+        lead = await this.leadsService.create({
+          phone,
+          clientName: clientName || undefined,
+          source: 'chat',
+          aiSummary: `[Категория: Контакт] ${message}`,
+          productInterest: interest,
+        });
 
         const response =
           'Спасибо, номер получил. Передам заявку менеджеру — он свяжется с вами и поможет с заказом.';
@@ -239,14 +249,17 @@ lead = await this.leadsService.create({
     }
 
     const quantity = this.extractQuantity(message);
-const dimensions = this.extractDimensions(message);
-const phone = this.extractPhone(message);
+    const dimensions = this.extractDimensions(message);
+    const phone = this.extractPhone(message);
 
-const normalizedMessage = message
-  .replace(/экстра/gi, 'Э')
-  .replace(/сорт\s+э\b/gi, 'сорт Э');
+    const normalizedMessage = message
+      .replace(/экстра/gi, 'Э')
+      .replace(/сорт\s+э\b/gi, 'сорт Э')
+      .replace(/нпс[-\s]?70/gi, 'НПС-70')
+      .replace(/нрс[-\s]?70/gi, 'НРС-70')
+      .replace(/нгс[-\s]?70/gi, '70');
 
-const searchQuery = this.buildSearchQuery(normalizedMessage);
+    const searchQuery = this.buildSearchQuery(normalizedMessage);
 
     let products;
 
@@ -260,74 +273,120 @@ const searchQuery = this.buildSearchQuery(normalizedMessage);
     } else {
       products = await this.productsService.search(searchQuery);
     }
-const asksStockOrPrice =
-  message.toLowerCase().includes('сколько') ||
-  message.toLowerCase().includes('есть') ||
-  message.toLowerCase().includes('налич') ||
-  message.toLowerCase().includes('остат') ||
-  message.toLowerCase().includes('цена') ||
-  message.toLowerCase().includes('стоит');
 
-if (products.length > 0 && asksStockOrPrice) {
-  const lowerMessage = message.toLowerCase();
+    if (cleanMessage.includes('налич')) {
+  products = products.filter((p) =>
+    p.name.toLowerCase().includes('налич'),
+  );
+}
 
-  if (
-    lowerMessage.includes('экстра') ||
-    lowerMessage.includes('сорт э')
-  ) {
-    const extraProduct = products.find((p) =>
-      p.name.toLowerCase().includes('сорт э'),
-    );
-
-    if (extraProduct) {
-      products = [extraProduct];
-    }
-  }
-
-  if (lowerMessage.includes('сорт в')) {
-    const bProduct = products.find((p) =>
-      p.name.toLowerCase().includes('сорт в'),
-    );
-
-    if (bProduct) {
-      products = [bProduct];
-    }
-  }
-
-  if (lowerMessage.includes('сорт а')) {
-    const aProduct = products.find((p) =>
-      p.name.toLowerCase().includes('сорт а'),
-    );
-
-    if (aProduct) {
-      products = [aProduct];
-    }
-  }
-
-  const product = products[0];
-
+    const asksStockOrPrice =
+      cleanMessage.includes('сколько') ||
+      cleanMessage.includes('есть') ||
+      cleanMessage.includes('налич') ||
+      cleanMessage.includes('остат') ||
+      cleanMessage.includes('цена') ||
+      cleanMessage.includes('стоит');
+      if (products.length === 0 && asksStockOrPrice) {
   const response =
-    `Нашёл товар: ${product.name}.\n` +
-    `Цена: ${product.price} ₽/${this.formatUnit(product.unit)}.\n` +
-    `Всего в наличии: ${product.stock} ${this.formatUnit(product.unit)}.\n\n` +
-    `Остатки по точкам:\n` +
-    `📍 Волхов (завод) — ${product.volhovStock} ${this.formatUnit(product.unit)}\n` +
-`📍 Север — ${product.skotnoeStock} ${this.formatUnit(product.unit)}\n` +
-    `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(product.unit)}\n` +
-    `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(product.unit)}\n` +
-    `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(product.unit)}`;
+    'Не нашёл точное совпадение в каталоге. Уточните название товара (например НПС-70, НРС-70, НГС-70) или напишите полный артикул.';
 
   return this.saveAndReturn(sessionId, response, {
     userMessage: message,
     sessionId,
     searchQuery,
     response,
-    products,
+    products: [],
     lead: null,
-    source: 'rules_stock_price',
+    source: 'rules_stock_not_found',
   });
 }
 
+    if (products.length > 0 && asksStockOrPrice) {
+      const lowerMessage = message.toLowerCase();
+
+      if (
+        lowerMessage.includes('экстра') ||
+        lowerMessage.includes('сорт э')
+      ) {
+        const extraProduct = products.find((p) =>
+          p.name.toLowerCase().includes('сорт э') ||
+          p.name.toLowerCase().includes('экстра'),
+        );
+
+        if (extraProduct) {
+          products = [extraProduct];
+        }
+      }
+
+      if (lowerMessage.includes('сорт в')) {
+        const bProduct = products.find((p) =>
+          p.name.toLowerCase().includes('сорт в'),
+        );
+
+        if (bProduct) {
+          products = [bProduct];
+        }
+      }
+
+      if (lowerMessage.includes('сорт а')) {
+        const aProduct = products.find((p) =>
+          p.name.toLowerCase().includes('сорт а'),
+        );
+
+        if (aProduct) {
+          products = [aProduct];
+        }
+      }
+
+      if (products.length > 1) {
+        const options = products.slice(0, 5);
+
+        const response =
+          'Нашёл несколько похожих товаров. Уточните, какой именно нужен:\n\n' +
+          options
+            .map(
+              (product, index) =>
+                `${index + 1}. ${product.name}\n` +
+                `Цена: ${product.price} ₽/${this.formatUnit(product.unit)}\n` +
+                `Север: ${product.skotnoeStock} ${this.formatUnit(product.unit)}`,
+            )
+            .join('\n\n');
+
+        return this.saveAndReturn(sessionId, response, {
+          userMessage: message,
+          sessionId,
+          searchQuery,
+          response,
+          products: options,
+          lead: null,
+          source: 'rules_multiple_stock_price',
+        });
+      }
+
+      const product = products[0];
+
+      const response =
+        `Нашёл товар: ${product.name}.\n` +
+        `Цена: ${product.price} ₽/${this.formatUnit(product.unit)}.\n` +
+        `Всего в наличии: ${product.stock} ${this.formatUnit(product.unit)}.\n\n` +
+        `Остатки по точкам:\n` +
+        `📍 Волхов (завод) — ${product.volhovStock} ${this.formatUnit(product.unit)}\n` +
+        `📍 Север — ${product.skotnoeStock} ${this.formatUnit(product.unit)}\n` +
+        `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(product.unit)}\n` +
+        `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(product.unit)}\n` +
+        `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(product.unit)}`;
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        searchQuery,
+        response,
+        products,
+        lead: null,
+        source: 'rules_stock_price',
+      });
+    }
 
     if (products.length === 0) {
       const allProducts = await this.productsService.findAll();
@@ -393,11 +452,12 @@ ${message}`,
     }
 
     if (!dimensions && products.length > 0) {
-        console.log('FOUND PRODUCTS:', products.length);
+      console.log('FOUND PRODUCTS:', products.length);
 
-if (products.length > 0) {
-  console.log('FIRST PRODUCT:', products[0]);
-}
+      if (products.length > 0) {
+        console.log('FIRST PRODUCT:', products[0]);
+      }
+
       const productsContext = this.buildProductsContext(products, 10);
 
       const aiResponse = await this.aiService.ask(
@@ -519,21 +579,21 @@ ${productsContext}
 
     let filteredProducts = products;
 
-const wantsPremiumLook =
-  message.toLowerCase().includes('без сучков') ||
-  message.toLowerCase().includes('чистый внешний вид') ||
-  message.toLowerCase().includes('красивый внешний вид') ||
-  message.toLowerCase().includes('премиальный');
+    const wantsPremiumLook =
+      message.toLowerCase().includes('без сучков') ||
+      message.toLowerCase().includes('чистый внешний вид') ||
+      message.toLowerCase().includes('красивый внешний вид') ||
+      message.toLowerCase().includes('премиальный');
 
-if (wantsPremiumLook) {
-  filteredProducts = products.filter(
-    (p) =>
-      p.name.toLowerCase().includes('сорт э') ||
-      p.name.toLowerCase().includes('экстра'),
-  );
-}
+    if (wantsPremiumLook) {
+      filteredProducts = products.filter(
+        (p) =>
+          p.name.toLowerCase().includes('сорт э') ||
+          p.name.toLowerCase().includes('экстра'),
+      );
+    }
 
-    const productsContext = this.buildProductsContext(products, 5);
+    const productsContext = this.buildProductsContext(filteredProducts, 5);
 
     const aiResponse = await this.aiService.ask(
       `История диалога:
@@ -567,85 +627,78 @@ ${productsContext}
       sessionId,
       searchQuery,
       response: aiResponse,
-      products,
+      products: filteredProducts,
       lead,
       source: 'openai_with_products',
     });
   }
 
-private async saveAndReturn(
-  sessionId: string,
-  response: string | null,
-  data: any,
-) {
-  const safeResponse =
-    response || 'Не смог подготовить ответ. Передам вопрос менеджеру.';
+  private async saveAndReturn(
+    sessionId: string,
+    response: string | null,
+    data: any,
+  ) {
+    const safeResponse =
+      response || 'Не смог подготовить ответ. Передам вопрос менеджеру.';
 
-  await this.messagesService.saveMessage(
-    sessionId,
-    'assistant',
-    safeResponse,
-  );
+    await this.messagesService.saveMessage(
+      sessionId,
+      'assistant',
+      safeResponse,
+    );
 
-  return {
-    ...data,
-    response: safeResponse,
-  };
-}
+    return {
+      ...data,
+      response: safeResponse,
+    };
+  }
 
-private cleanProductInterest(message: string): string {
-  return message
-    .split('\n')
-    .filter((line) => !/(\+?\d[\d\s\-()]{8,}\d)/.test(line))
-    .join(' ')
-    .replace(/мой телефон.*$/gi, '')
-    .replace(/телефон.*$/gi, '')
-    .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-    .replace(/мой/gi, '')
-    .replace(/беру/gi, '')
-    .replace(/хочу купить/gi, '')
-    .replace(/оформить/gi, '')
-    .replace(/заказать/gi, '')
-    .replace(/[,.]/g, '')
-    .trim()
-    .slice(0, 100);
-}
+  private cleanProductInterest(message: string): string {
+    return message
+      .split('\n')
+      .filter((line) => !/(\+?\d[\d\s\-()]{8,}\d)/.test(line))
+      .join(' ')
+      .replace(/мой телефон.*$/gi, '')
+      .replace(/телефон.*$/gi, '')
+      .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+      .replace(/мой/gi, '')
+      .replace(/беру/gi, '')
+      .replace(/хочу купить/gi, '')
+      .replace(/оформить/gi, '')
+      .replace(/заказать/gi, '')
+      .replace(/[,.]/g, '')
+      .trim()
+      .slice(0, 100);
+  }
 
   private buildProductsContext(products: any[], limit: number): string {
-  return products
-    .slice(0, limit)
-    .map(
-      (item, index) =>
-        `${index + 1}. ${item.name}
+    return products
+      .slice(0, limit)
+      .map(
+        (item, index) =>
+          `${index + 1}. ${item.name}
 Категория: ${item.category}
 Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
 Общий остаток по всем точкам: ${item.stock} ${this.formatUnit(item.unit)}
 Остатки по точкам:
-📍 Волхов (завод) — ${item.volhovStock}
-📍 Север — ${item.skotnoeStock}
+📍 Волхов (завод) — ${item.volhovStock} ${this.formatUnit(item.unit)}
+📍 Север — ${item.skotnoeStock} ${this.formatUnit(item.unit)}
 📍 Марьино — ${item.lomonosovStock} ${this.formatUnit(item.unit)}
 📍 Рощино — ${item.roshinoStock} ${this.formatUnit(item.unit)}
 📍 Ладога — ${item.ladogaStock} ${this.formatUnit(item.unit)}
 Размеры: ${item.height}х${item.width}х${item.length} мм`,
-    )
-    .join('\n\n');
-}
+      )
+      .join('\n\n');
+  }
 
   private formatWarehouseStock(product: any): string {
     return (
       `Остатки по точкам:\n` +
-      `📍 Север — ${product.volhovStock} ${this.formatUnit(
-        product.unit,
-      )}\n` +
-      `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(
-        product.unit,
-      )}\n` +
-      `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(
-        product.unit,
-      )}\n` +
-      `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(
-        product.unit,
-      )}`
+      `📍 Волхов (завод) — ${product.volhovStock} ${this.formatUnit(product.unit)}\n` +
+      `📍 Север — ${product.skotnoeStock} ${this.formatUnit(product.unit)}\n` +
+      `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(product.unit)}\n` +
+      `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(product.unit)}\n` +
+      `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(product.unit)}`
     );
   }
 
@@ -661,7 +714,7 @@ private cleanProductInterest(message: string): string {
     );
 
     const match = withoutDimensions.match(
-    /(\d+)\s*(шт|штук|штуки|щит|щита|щитов|досок|доски|доска|бруса|брус|брусьев|слэб|слэба|слэбов|ступеней|ступени|ступень)/i,
+      /(\d+)\s*(шт|штук|штуки|щит|щита|щитов|досок|доски|доска|бруса|брус|брусьев|слэб|слэба|слэбов|ступеней|ступени|ступень)/i,
     );
 
     if (!match) {
@@ -703,22 +756,39 @@ private cleanProductInterest(message: string): string {
 
     return match[1].replace(/\s/g, '');
   }
+
   private extractClientName(message: string): string | null {
-  const lines = message.split('\n');
+  const withoutPhone = message
+    .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+    .replace(/мой телефон/gi, '')
+    .replace(/телефон/gi, '')
+    .replace(/хочу купить/gi, '')
+    .replace(/беру/gi, '')
+    .replace(/заказать/gi, '')
+    .replace(/оформить/gi, '')
+    .replace(/слэб/gi, '')
+    .replace(/щит/gi, '')
+    .replace(/доска/gi, '')
+    .replace(/доску/gi, '')
+    .replace(/брус/gi, '')
+    .replace(/\d+\s*[хx]\s*\d+/gi, '')
+    .replace(/\d+\s*[хx]\s*\d+\s*[хx]\s*\d+/gi, '')
+    .replace(/\d+\s*(шт|штук|штуки)/gi, '')
+    .replace(/на сервере/gi, '')
+    .replace(/на севере/gi, '')
+    .replace(/север/gi, '')
+    .replace(/[,.]/g, ' ')
+    .trim();
 
-  const phoneLine = lines.find((line) =>
-    /(\+?\d[\d\s\-()]{8,}\d)/.test(line),
-  );
+  const words = withoutPhone
+    .split(/\s+/)
+    .filter((word) => /^[А-ЯЁ][а-яё]{1,20}$/.test(word));
 
-  if (!phoneLine) {
+  if (words.length === 0) {
     return null;
   }
 
-  const name = phoneLine
-    .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-    .trim();
-
-  return name || null;
+  return words[words.length - 1];
 }
 
   private formatUnit(unit: string): string {
@@ -742,6 +812,15 @@ private cleanProductInterest(message: string): string {
 
     if (text.includes('брус')) {
       return 'Брус';
+    }
+
+    if (
+      text.includes('налич') ||
+      text.includes('нпс') ||
+      text.includes('нрс') ||
+      text.includes('нгс')
+    ) {
+      return 'Наличник';
     }
 
     if (
@@ -774,6 +853,22 @@ private cleanProductInterest(message: string): string {
       return 'брус';
     }
 
+    if (text.includes('нпс')) {
+  return text.match(/нпс[-\s]?\d+/)?.[0].replace(/\s+/g, '-') || 'нпс';
+}
+
+if (text.includes('нрс')) {
+  return text.match(/нрс[-\s]?\d+/)?.[0].replace(/\s+/g, '-') || 'нрс';
+}
+
+if (text.includes('нгс')) {
+  return text.match(/нгс[-\s]?\d+/)?.[0].replace(/\s+/g, '-') || 'нгс';
+}
+
+if (text.includes('налич')) {
+  return 'наличник';
+}
+
     if (text.includes('ступ')) {
       return 'ступень';
     }
@@ -784,7 +879,6 @@ private cleanProductInterest(message: string): string {
 
     return message;
   }
-  
 
   private extractInterestFromHistory(historyContext: string): string {
     const text = historyContext.toLowerCase();
@@ -804,18 +898,18 @@ private cleanProductInterest(message: string): string {
     }
 
     const quantityMatches = [
-  ...historyContext.matchAll(
-    /(\d+)\s*(шт|штук|штуки)/gi,
-  ),
-];
+      ...historyContext.matchAll(
+        /(\d+)\s*(шт|штук|штуки)/gi,
+      ),
+    ];
 
-const clientQuantityMatch = quantityMatches.find(
-  (match) => Number(match[1]) < 100,
-);
+    const clientQuantityMatch = quantityMatches.find(
+      (match) => Number(match[1]) < 100,
+    );
 
-if (clientQuantityMatch) {
-  parts.push(`${clientQuantityMatch[1]} шт`);
-}
+    if (clientQuantityMatch) {
+      parts.push(`${clientQuantityMatch[1]} шт`);
+    }
 
     if (text.includes('рощино')) {
       parts.push('Рощино');
@@ -835,53 +929,56 @@ if (clientQuantityMatch) {
 
     return parts.length > 0 ? parts.join(', ') : '';
   }
-private needsProductClarification(message: string): boolean {
-  const text = message.toLowerCase();
 
-  const asksCleanGrade =
-    text.includes('без сучков') ||
-    text.includes('без сучка') ||
-    text.includes('экстра') ||
-    text.includes('сорт э');
+  private needsProductClarification(message: string): boolean {
+    const text = message.toLowerCase();
 
-  if (asksCleanGrade) {
-    return false;
+    const asksCleanGrade =
+      text.includes('без сучков') ||
+      text.includes('без сучка') ||
+      text.includes('экстра') ||
+      text.includes('сорт э');
+
+    if (asksCleanGrade) {
+      return false;
+    }
+
+    const asksAvailability =
+      text.includes('есть') ||
+      text.includes('сколько') ||
+      text.includes('налич') ||
+      text.includes('остат');
+
+    const hasCategory =
+      text.includes('щит') ||
+      text.includes('брус') ||
+      text.includes('доск') ||
+      text.includes('слэб') ||
+      text.includes('ступ') ||
+      text.includes('тетив') ||
+      text.includes('поруч') ||
+      text.includes('баляс');
+
+    const hasExactSize = /\d+\s*[xх]\s*\d+/.test(text);
+
+    return asksAvailability && hasCategory && !hasExactSize;
   }
 
-  const asksAvailability =
-    text.includes('есть') ||
-    text.includes('сколько') ||
-    text.includes('налич') ||
-    text.includes('остат');
+  private hasProductWords(text: string): boolean {
+    const value = text.toLowerCase();
 
-  const hasCategory =
-    text.includes('щит') ||
-    text.includes('брус') ||
-    text.includes('доск') ||
-    text.includes('слэб') ||
-    text.includes('ступ') ||
-    text.includes('тетив') ||
-    text.includes('поруч') ||
-    text.includes('баляс');
-
-  const hasExactSize = /\d+\s*[xх]\s*\d+/.test(text);
-
-  return asksAvailability && hasCategory && !hasExactSize;
-}
-private hasProductWords(text: string): boolean {
-  const value = text.toLowerCase();
-
-  return (
-    value.includes('щит') ||
-    value.includes('слэб') ||
-    value.includes('доск') ||
-    value.includes('брус') ||
-    value.includes('ступ') ||
-    value.includes('тетив') ||
-    value.includes('поруч') ||
-    value.includes('баляс') ||
-    value.includes('мульч') ||
-    value.includes('брикет')
-  );
-}
+    return (
+      value.includes('щит') ||
+      value.includes('слэб') ||
+      value.includes('доск') ||
+      value.includes('брус') ||
+      value.includes('ступ') ||
+      value.includes('тетив') ||
+      value.includes('поруч') ||
+      value.includes('баляс') ||
+      value.includes('налич') ||
+      value.includes('мульч') ||
+      value.includes('брикет')
+    );
+  }
 }

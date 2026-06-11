@@ -55,34 +55,15 @@ export class VkController {
     try {
       const sessionId = `vk-${peerId}`;
 
-      const aiAnswer = await this.chatService.processMessage(
-        text,
-        sessionId,
-      );
+      const aiAnswer = await this.chatService.processMessage(text, sessionId);
 
       await this.vkService.sendMessage(
         peerId,
-        aiAnswer.response ||
-          'Спасибо за сообщение! Сейчас уточню информацию.',
+        aiAnswer.response || 'Спасибо за сообщение! Сейчас уточню информацию.',
       );
 
-            if (aiAnswer.lead) {
+      if (aiAnswer.lead && !(aiAnswer.lead as any).isDuplicate) {
         const lead = aiAnswer.lead as any;
-
-        const cleanedText = text
-          .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-          .replace(/телефон[:\s]*/gi, '')
-          .trim();
-
-        const nameMatch = cleanedText.match(/([А-ЯЁ][а-яё]+)\s*$/);
-
-        if (
-  !lead.clientName ||
-  lead.clientName.trim() === '' ||
-  lead.clientName.toLowerCase().includes('телефон')
-) {
-  lead.clientName = nameMatch?.[1] || '';
-}
 
         await this.vkService.sendManagerNotification(
           `🔥 Новая заявка из VK

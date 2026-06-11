@@ -1,20 +1,64 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { Lead, LeadStatus } from './lead.entity';
+import { LeadNote } from './lead-note.entity';
 
 @Injectable()
 export class LeadsService {
   constructor(
     @InjectRepository(Lead)
     private readonly leadsRepository: Repository<Lead>,
+
+    @InjectRepository(LeadNote)
+    private readonly leadNotesRepository: Repository<LeadNote>,
   ) {}
 
-  create(data: Partial<Lead>) {
-    const lead = this.leadsRepository.create(data);
+  async create(data: Partial<Lead>) {
+    if (data.phone) {
+      const existingActiveLead = await this.leadsRepository.findOne({
+        where: {
+          phone: data.phone,
+          status: In([
+            LeadStatus.NEW,
+            LeadStatus.IN_PROGRESS,
+            LeadStatus.NEGOTIATION,
+          ]),
+        },
+        order: {
+          createdAt: 'DESC',
+        },
+      });
 
-    return this.leadsRepository.save(lead);
+      if (existingActiveLead) {
+        existingActiveLead.clientName =
+          data.clientName || existingActiveLead.clientName;
+
+        existingActiveLead.productInterest =
+          data.productInterest || existingActiveLead.productInterest;
+
+        existingActiveLead.aiSummary =
+          data.aiSummary || existingActiveLead.aiSummary;
+
+        existingActiveLead.source = data.source || existingActiveLead.source;
+
+        await this.leadsRepository.save(existingActiveLead);
+
+        return {
+          ...existingActiveLead,
+          isDuplicate: true,
+        };
+      }
+    }
+
+    const lead = this.leadsRepository.create(data);
+    const savedLead = await this.leadsRepository.save(lead);
+
+    return {
+      ...savedLead,
+      isDuplicate: false,
+    };
   }
 
   findAll() {
@@ -25,7 +69,7 @@ export class LeadsService {
     });
   }
 
-  async updateStatus(id: string, status: LeadStatus) {
+  async findOne(id: string) {
     const lead = await this.leadsRepository.findOne({
       where: { id },
     });
@@ -34,8 +78,61 @@ export class LeadsService {
       throw new NotFoundException('Lead not found');
     }
 
+    return lead;
+  }
+
+  findByStatus(status: LeadStatus) {
+    return this.leadsRepository.find({
+      where: { status },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  async updateStatus(id: string, status: LeadStatus) {
+    const lead = await this.findOne(id);
+
     lead.status = status;
 
     return this.leadsRepository.save(lead);
+  }
+
+  async addNote(id: string, text: string, authorName = 'Менеджер') {
+    const lead = await this.findOne(id);
+
+    const note = this.leadNotesRepository.create({
+      text,
+      authorName,
+      lead,
+    });
+
+    return this.leadNotesRepository.save(note);
+  }
+
+  async getNotes(id: string) {
+    await this.findOne(id);
+
+    return this.leadNotesRepository.find({
+      where: {
+        lead: {
+          id,
+        },
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  async remove(id: string) {
+    const lead = await this.findOne(id);
+
+    await this.leadsRepository.remove(lead);
+
+    return {
+      deleted: true,
+      id,
+    };
   }
 }
