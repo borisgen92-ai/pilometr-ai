@@ -74,7 +74,7 @@ export class VkService {
           {
             action: {
               type: 'callback',
-              label: '🔵 В работу',
+              label: '🔵 Принят к исполнению',
               payload: JSON.stringify({
                 action: 'lead_status',
                 leadId,
@@ -86,7 +86,7 @@ export class VkService {
           {
             action: {
               type: 'callback',
-              label: '🟡 Переговоры',
+              label: '🟡 Готов к выдаче',
               payload: JSON.stringify({
                 action: 'lead_status',
                 leadId,
@@ -100,7 +100,7 @@ export class VkService {
           {
             action: {
               type: 'callback',
-              label: '🟢 Продано',
+              label: '🟢 Выдан',
               payload: JSON.stringify({
                 action: 'lead_status',
                 leadId,

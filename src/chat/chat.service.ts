@@ -757,30 +757,47 @@ ${productsContext}
     return match[1].replace(/\s/g, '');
   }
 
-  private extractClientName(message: string): string | null {
-  const withoutPhone = message
-    .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-    .replace(/мой телефон/gi, '')
-    .replace(/телефон/gi, '')
-    .replace(/хочу купить/gi, '')
-    .replace(/беру/gi, '')
-    .replace(/заказать/gi, '')
-    .replace(/оформить/gi, '')
-    .replace(/слэб/gi, '')
-    .replace(/щит/gi, '')
-    .replace(/доска/gi, '')
-    .replace(/доску/gi, '')
-    .replace(/брус/gi, '')
-    .replace(/\d+\s*[хx]\s*\d+/gi, '')
-    .replace(/\d+\s*[хx]\s*\d+\s*[хx]\s*\d+/gi, '')
-    .replace(/\d+\s*(шт|штук|штуки)/gi, '')
-    .replace(/на сервере/gi, '')
-    .replace(/на севере/gi, '')
-    .replace(/север/gi, '')
-    .replace(/[,.]/g, ' ')
-    .trim();
+private extractClientName(message: string): string | null {
+  const textWithoutPhone = message.replace(/(\+?\d[\d\s\-()]{8,}\d)/g, ' ');
 
-  const words = withoutPhone
+  const nameAfterPhoneMatch = textWithoutPhone.match(
+    /(?:телефон|мой телефон|номер)\s*[:\-]?\s*([А-ЯЁ][а-яё]{1,20})/i,
+  );
+
+  if (nameAfterPhoneMatch?.[1]) {
+    return nameAfterPhoneMatch[1];
+  }
+
+  const words = textWithoutPhone
+    .replace(/хочу купить/gi, ' ')
+    .replace(/хочу/gi, ' ')
+    .replace(/купить/gi, ' ')
+    .replace(/беру/gi, ' ')
+    .replace(/заказать/gi, ' ')
+    .replace(/оформить/gi, ' ')
+    .replace(/телефон/gi, ' ')
+    .replace(/мой/gi, ' ')
+    .replace(/номер/gi, ' ')
+    .replace(/слэб/gi, ' ')
+    .replace(/щит/gi, ' ')
+    .replace(/мебельный/gi, ' ')
+    .replace(/доска/gi, ' ')
+    .replace(/доску/gi, ' ')
+    .replace(/брус/gi, ' ')
+    .replace(/сорт/gi, ' ')
+    .replace(/экстра/gi, ' ')
+    .replace(/север/gi, ' ')
+    .replace(/рощино/gi, ' ')
+    .replace(/марьино/gi, ' ')
+    .replace(/ладога/gi, ' ')
+    .replace(/волхов/gi, ' ')
+    .replace(/на севере/gi, ' ')
+    .replace(/на сервере/gi, ' ')
+    .replace(/\d+\s*[хx]\s*\d+\s*[хx]\s*\d+/gi, ' ')
+    .replace(/\d+\s*[хx]\s*\d+/gi, ' ')
+    .replace(/\d+\s*(шт|штук|штуки|м|мм)/gi, ' ')
+    .replace(/[,:;.]/g, ' ')
+    .trim()
     .split(/\s+/)
     .filter((word) => /^[А-ЯЁ][а-яё]{1,20}$/.test(word));
 

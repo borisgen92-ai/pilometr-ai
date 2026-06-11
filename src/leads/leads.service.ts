@@ -32,8 +32,14 @@ export class LeadsService {
       });
 
       if (existingActiveLead) {
-        existingActiveLead.clientName =
-          data.clientName || existingActiveLead.clientName;
+        if (
+  data.clientName &&
+  (!existingActiveLead.clientName ||
+    existingActiveLead.clientName.toLowerCase().includes('телефон') ||
+    existingActiveLead.clientName.length > 30)
+) {
+  existingActiveLead.clientName = data.clientName;
+}
 
         existingActiveLead.productInterest =
           data.productInterest || existingActiveLead.productInterest;
