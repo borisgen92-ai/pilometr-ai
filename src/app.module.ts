@@ -9,6 +9,7 @@ import { CalculatorModule } from './calculator/calculator.module';
 import { ChatModule } from './chat/chat.module';
 import { VkModule } from './vk/vk.module';
 import { MessagesModule } from './messages/messages.module';
+import { WebsiteLeadsModule } from './website-leads/website-leads.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { MessagesModule } from './messages/messages.module';
     ChatModule,
     VkModule,
     MessagesModule,
+    WebsiteLeadsModule,
   ],
 })
 export class AppModule {}

@@ -8,5 +8,6 @@ import { LeadsModule } from '../leads/leads.module';
   imports: [ChatModule, LeadsModule],
   controllers: [VkController],
   providers: [VkService],
+  exports: [VkService],
 })
 export class VkModule {}
