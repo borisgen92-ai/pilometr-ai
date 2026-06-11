@@ -1,5 +1,8 @@
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+
 import { ChatService } from '../chat/chat.service';
+import { LeadStatus } from '../leads/lead.entity';
+import { LeadsService } from '../leads/leads.service';
 import { VkService } from './vk.service';
 
 @Controller('vk')
@@ -9,6 +12,7 @@ export class VkController {
   constructor(
     private readonly chatService: ChatService,
     private readonly vkService: VkService,
+    private readonly leadsService: LeadsService,
   ) {}
 
   @Post('webhook')
@@ -19,6 +23,10 @@ export class VkController {
     if (body.type === 'confirmation') {
       console.log('VK_CONFIRMATION_CODE:', process.env.VK_CONFIRMATION_CODE);
       return process.env.VK_CONFIRMATION_CODE;
+    }
+
+    if (body.type === 'message_event') {
+      return this.handleMessageEvent(body);
     }
 
     if (body.type !== 'message_new') {
@@ -77,6 +85,7 @@ ${text}
 
 Источник: VK
 ID диалога: ${sessionId}`,
+          lead.id,
         );
       }
 
@@ -91,5 +100,99 @@ ID диалога: ${sessionId}`,
 
       return 'ok';
     }
+  }
+
+  private async handleMessageEvent(body: any) {
+    const object = body.object;
+
+    const eventId = object?.event_id;
+    const userId = object?.user_id;
+    const peerId = object?.peer_id;
+    const payload = object?.payload;
+
+    console.log('VK message_event:', {
+      eventId,
+      userId,
+      peerId,
+      payload,
+    });
+
+    if (!eventId || !userId || !peerId || !payload) {
+      return 'ok';
+    }
+
+    try {
+      if (payload.action !== 'lead_status') {
+        await this.vkService.answerMessageEvent(
+          eventId,
+          userId,
+          peerId,
+          'Неизвестное действие',
+        );
+
+        return 'ok';
+      }
+
+      const leadId = payload.leadId;
+      const status = payload.status as LeadStatus;
+
+      const allowedStatuses = [
+        LeadStatus.NEW,
+        LeadStatus.IN_PROGRESS,
+        LeadStatus.NEGOTIATION,
+        LeadStatus.WON,
+        LeadStatus.LOST,
+      ];
+
+      if (!leadId || !allowedStatuses.includes(status)) {
+        await this.vkService.answerMessageEvent(
+          eventId,
+          userId,
+          peerId,
+          'Некорректный статус заявки',
+        );
+
+        return 'ok';
+      }
+
+      await this.leadsService.updateStatus(leadId, status);
+
+      const statusText = this.getStatusText(status);
+
+      await this.vkService.answerMessageEvent(
+        eventId,
+        userId,
+        peerId,
+        `Статус заявки изменён: ${statusText}`,
+      );
+
+      await this.vkService.sendMessage(
+        peerId,
+        `✅ Статус заявки изменён: ${statusText}`,
+      );
+
+      return 'ok';
+    } catch (error) {
+      console.error('VK message_event error:', error);
+
+      await this.vkService.answerMessageEvent(
+        eventId,
+        userId,
+        peerId,
+        'Не получилось изменить статус заявки',
+      );
+
+      return 'ok';
+    }
+  }
+
+  private getStatusText(status: LeadStatus) {
+    if (status === LeadStatus.NEW) return 'Новая';
+    if (status === LeadStatus.IN_PROGRESS) return 'В работе';
+    if (status === LeadStatus.NEGOTIATION) return 'Переговоры';
+    if (status === LeadStatus.WON) return 'Продано';
+    if (status === LeadStatus.LOST) return 'Отказ';
+
+    return status;
   }
 }

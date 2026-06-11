@@ -9,7 +9,7 @@ export class VkService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async sendMessage(peerId: number, message: string) {
+  async sendMessage(peerId: number, message: string, keyboard?: any) {
     const url = 'https://api.vk.com/method/messages.send';
 
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -21,6 +21,10 @@ export class VkService {
           message,
           random_id: String(Date.now() + attempt),
         });
+
+        if (keyboard) {
+          params.append('keyboard', JSON.stringify(keyboard));
+        }
 
         const response = await fetch(url, {
           method: 'POST',
@@ -52,14 +56,148 @@ export class VkService {
     }
   }
 
-  async sendManagerNotification(message: string) {
-    const managerPeerId = process.env.VK_MANAGER_PEER_ID;
+  private getManagerPeerIds(): number[] {
+    const ids =
+      process.env.VK_MANAGER_PEER_IDS || process.env.VK_MANAGER_PEER_ID || '';
 
-    if (!managerPeerId) {
-      console.log('VK_MANAGER_PEER_ID не указан');
+    return ids
+      .split(',')
+      .map((id) => Number(id.trim()))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+
+  private createLeadKeyboard(leadId: string) {
+    return {
+      inline: true,
+      buttons: [
+        [
+          {
+            action: {
+              type: 'callback',
+              label: '🔵 В работу',
+              payload: JSON.stringify({
+                action: 'lead_status',
+                leadId,
+                status: 'in_progress',
+              }),
+            },
+            color: 'primary',
+          },
+          {
+            action: {
+              type: 'callback',
+              label: '🟡 Переговоры',
+              payload: JSON.stringify({
+                action: 'lead_status',
+                leadId,
+                status: 'negotiation',
+              }),
+            },
+            color: 'secondary',
+          },
+        ],
+        [
+          {
+            action: {
+              type: 'callback',
+              label: '🟢 Продано',
+              payload: JSON.stringify({
+                action: 'lead_status',
+                leadId,
+                status: 'won',
+              }),
+            },
+            color: 'positive',
+          },
+          {
+            action: {
+              type: 'callback',
+              label: '🔴 Отказ',
+              payload: JSON.stringify({
+                action: 'lead_status',
+                leadId,
+                status: 'lost',
+              }),
+            },
+            color: 'negative',
+          },
+        ],
+      ],
+    };
+  }
+
+  async sendManagerNotification(message: string, leadId?: string) {
+    const managerPeerIds = this.getManagerPeerIds();
+
+    if (managerPeerIds.length === 0) {
+      console.log('VK_MANAGER_PEER_IDS / VK_MANAGER_PEER_ID не указан');
       return null;
     }
 
-    return this.sendMessage(Number(managerPeerId), message);
+    const keyboard = leadId ? this.createLeadKeyboard(leadId) : undefined;
+
+    const results: { peerId: number; result: any }[] = [];
+
+    for (const peerId of managerPeerIds) {
+  let result = await this.sendMessage(peerId, message, keyboard);
+
+  if (result?.error?.error_code === 912 && keyboard) {
+    console.log(
+      'VK callback buttons disabled. Sending manager notification without keyboard.',
+    );
+
+    result = await this.sendMessage(peerId, message);
+  }
+
+  results.push({ peerId, result });
+}
+
+    return results;
+  }
+
+  async answerMessageEvent(
+    eventId: string,
+    userId: number,
+    peerId: number,
+    text: string,
+  ) {
+    const url = 'https://api.vk.com/method/messages.sendMessageEventAnswer';
+
+    try {
+      const params = new URLSearchParams({
+        access_token: this.token || '',
+        v: this.apiVersion,
+        event_id: eventId,
+        user_id: String(userId),
+        peer_id: String(peerId),
+        event_data: JSON.stringify({
+          type: 'show_snackbar',
+          text,
+        }),
+      });
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: params,
+        signal: AbortSignal.timeout(20000),
+      });
+
+      const data = await response.json();
+
+      console.log('VK event answer:', data);
+
+      if (data?.error) {
+        console.error('VK EVENT ANSWER ERROR:', data.error);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('VK EVENT ANSWER SEND ERROR:', error);
+
+      return {
+        error: 'VK_EVENT_ANSWER_FAILED',
+        details: error,
+      };
+    }
   }
 }
