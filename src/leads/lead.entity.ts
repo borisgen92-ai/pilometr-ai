@@ -33,7 +33,42 @@ export class Lead {
 
   @Column({ nullable: true })
   productInterest: string;
+  @Column({ nullable: true })
+  productId: string;
 
+  @Column({ nullable: true })
+  productName: string;
+
+  @Column({
+    type: 'float',
+    nullable: true,
+  })
+  productPrice: number;
+
+  @Column({ nullable: true })
+  productUnit: string;
+
+  @Column({
+    type: 'float',
+    nullable: true,
+  })
+  requestedQuantity: number;
+
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+  })
+  warehouseStock: {
+    volhov: number;
+    sever: number;
+    marino: number;
+    roshino: number;
+    ladoga: number;
+  };
+
+  @Column({ nullable: true })
+  bestWarehouse: string;
+  
   @Column({ nullable: true })
   source: string;
 

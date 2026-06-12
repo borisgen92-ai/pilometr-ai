@@ -197,12 +197,26 @@ ${historyContext}
 
         const clientName = this.extractClientName(message);
 
+                const dimensions = this.extractDimensions(message);
+        const searchQuery = this.buildSearchQuery(message);
+
+        const products = dimensions
+          ? await this.productsService.findByDimensions(
+              dimensions.width,
+              dimensions.height,
+              dimensions.length,
+              message,
+            )
+          : await this.productsService.search(searchQuery);
+
+        const product = products[0];
+
         lead = await this.leadsService.create({
           phone,
           clientName: clientName || undefined,
           source: 'chat',
           aiSummary: `[Категория: Контакт] ${message}`,
-          productInterest: interest,
+          productInterest: product?.name || interest,
         });
 
         const response =
@@ -213,7 +227,8 @@ ${historyContext}
           sessionId,
           intent,
           response,
-          products: [],
+                    products,
+          product,
           lead,
           source: 'intent_contact_created',
         });
@@ -748,64 +763,67 @@ ${productsContext}
   }
 
   private extractPhone(message: string): string | null {
-    const match = message.match(/(\+?\d[\d\s\-()]{8,}\d)/);
+  const match = message.match(/(\+?\d[\d\s\-()]{8,}\d)/);
 
-    if (!match) {
-      return null;
-    }
-
-    return match[1].replace(/\s/g, '');
-  }
-
-private extractClientName(message: string): string | null {
-  const textWithoutPhone = message.replace(/(\+?\d[\d\s\-()]{8,}\d)/g, ' ');
-
-  const nameAfterPhoneMatch = textWithoutPhone.match(
-    /(?:телефон|мой телефон|номер)\s*[:\-]?\s*([А-ЯЁ][а-яё]{1,20})/i,
-  );
-
-  if (nameAfterPhoneMatch?.[1]) {
-    return nameAfterPhoneMatch[1];
-  }
-
-  const words = textWithoutPhone
-    .replace(/хочу купить/gi, ' ')
-    .replace(/хочу/gi, ' ')
-    .replace(/купить/gi, ' ')
-    .replace(/беру/gi, ' ')
-    .replace(/заказать/gi, ' ')
-    .replace(/оформить/gi, ' ')
-    .replace(/телефон/gi, ' ')
-    .replace(/мой/gi, ' ')
-    .replace(/номер/gi, ' ')
-    .replace(/слэб/gi, ' ')
-    .replace(/щит/gi, ' ')
-    .replace(/мебельный/gi, ' ')
-    .replace(/доска/gi, ' ')
-    .replace(/доску/gi, ' ')
-    .replace(/брус/gi, ' ')
-    .replace(/сорт/gi, ' ')
-    .replace(/экстра/gi, ' ')
-    .replace(/север/gi, ' ')
-    .replace(/рощино/gi, ' ')
-    .replace(/марьино/gi, ' ')
-    .replace(/ладога/gi, ' ')
-    .replace(/волхов/gi, ' ')
-    .replace(/на севере/gi, ' ')
-    .replace(/на сервере/gi, ' ')
-    .replace(/\d+\s*[хx]\s*\d+\s*[хx]\s*\d+/gi, ' ')
-    .replace(/\d+\s*[хx]\s*\d+/gi, ' ')
-    .replace(/\d+\s*(шт|штук|штуки|м|мм)/gi, ' ')
-    .replace(/[,:;.]/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter((word) => /^[А-ЯЁ][а-яё]{1,20}$/.test(word));
-
-  if (words.length === 0) {
+  if (!match) {
     return null;
   }
 
+  const digits = match[1].replace(/\D/g, '');
+
+  if (digits.length === 11 && digits.startsWith('8')) {
+    return `7${digits.slice(1)}`;
+  }
+
+  if (digits.length === 11 && digits.startsWith('7')) {
+    return digits;
+  }
+
+  if (digits.length === 10) {
+    return `7${digits}`;
+  }
+
+  return digits;
+}
+
+private extractClientName(message: string): string | null {
+
+  const withoutPhone = message
+
+    .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, ' ')
+
+    .replace(/[,:;.]/g, ' ')
+
+    .trim();
+
+  const stopWords = [
+
+    'Хочу', 'Купить', 'Беру', 'Заказать', 'Оформить',
+
+    'Телефон', 'Мой', 'Номер',
+
+    'Слэб', 'Щит', 'Мебельный', 'Доска', 'Брус',
+
+    'Сорт', 'Экстра', 'Север', 'Рощино', 'Марьино', 'Ладога',
+
+  ];
+
+  const words = withoutPhone
+
+    .split(/\s+/)
+
+    .filter((word) => /^[А-ЯЁ][а-яё]{1,20}$/.test(word))
+
+    .filter((word) => !stopWords.includes(word));
+
+  if (words.length === 0) {
+
+    return null;
+
+  }
+
   return words[words.length - 1];
+
 }
 
   private formatUnit(unit: string): string {

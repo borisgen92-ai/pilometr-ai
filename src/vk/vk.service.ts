@@ -126,6 +126,37 @@ export class VkService {
     };
   }
 
+    async getUserName(userId: number): Promise<string | null> {
+    const url = 'https://api.vk.com/method/users.get';
+
+    try {
+      const params = new URLSearchParams({
+        access_token: this.token || '',
+        v: this.apiVersion,
+        user_ids: String(userId),
+      });
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: params,
+        signal: AbortSignal.timeout(10000),
+      });
+
+      const data = await response.json();
+
+      const user = data?.response?.[0];
+
+      if (!user) {
+        return null;
+      }
+
+      return `${user.first_name || ''} ${user.last_name || ''}`.trim() || null;
+    } catch (error) {
+      console.error('VK GET USER ERROR:', error);
+      return null;
+    }
+  }
+  
   async sendManagerNotification(message: string, leadId?: string) {
     const managerPeerIds = this.getManagerPeerIds();
 

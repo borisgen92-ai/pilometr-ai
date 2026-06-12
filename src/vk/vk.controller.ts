@@ -37,6 +37,7 @@ export class VkController {
     const message = body.object?.message;
     const text = message?.text;
     const peerId = message?.peer_id;
+    const fromId = message?.from_id;
 
     if (eventId && this.processedEventIds.has(eventId)) {
       console.log('Повторный VK event пропущен:', eventId);
@@ -52,9 +53,10 @@ export class VkController {
     }
 
     console.log('Новое сообщение из VK:', {
-      peerId,
-      text,
-    });
+  peerId,
+  fromId,
+  text,
+});
 
     if (!text || !peerId) {
       return 'ok';
@@ -65,20 +67,41 @@ export class VkController {
 
       const aiAnswer = await this.chatService.processMessage(text, sessionId);
 
+      const vkUserName = fromId
+  ? await this.vkService.getUserName(fromId)
+  : null;
+
       await this.vkService.sendMessage(
         peerId,
         aiAnswer.response || 'Спасибо за сообщение! Сейчас уточню информацию.',
       );
 
-      if (aiAnswer.lead && !(aiAnswer.lead as any).isDuplicate) {
+            if (aiAnswer.lead && !(aiAnswer.lead as any).isDuplicate) {
         const lead = aiAnswer.lead as any;
+        const product = (aiAnswer as any).product || (aiAnswer as any).products?.[0];
+
+        const productText = product
+          ? `
+
+📦 Товар:
+${product.name}
+
+💰 Цена: ${product.price} ₽ / ${product.unit}
+
+📍 Остатки:
+Волхов: ${product.volhovStock ?? 0}
+Север: ${product.skotnoeStock ?? 0}
+Марьино: ${product.lomonosovStock ?? 0}
+Рощино: ${product.roshinoStock ?? 0}
+Ладога: ${product.ladogaStock ?? 0}`
+          : '';
 
         await this.vkService.sendManagerNotification(
           `🔥 Новая заявка из VK
 
-Имя: ${lead.clientName || 'Не указано'}
+Имя: ${vkUserName || lead.clientName || 'Не указано'}
 Телефон: ${lead.phone}
-Интерес: ${lead.productInterest || 'Не указан'}
+${productText || `Интерес: ${lead.productInterest || 'Не указан'}`}
 
 Сообщение клиента:
 ${text}
@@ -86,6 +109,16 @@ ${text}
 Источник: VK
 ID диалога: ${sessionId}`,
           lead.id,
+        );
+                await this.vkService.sendMessage(
+          peerId,
+          `📌 Заявка создана для менеджера
+
+Телефон: ${lead.phone}
+${productText || `Интерес: ${lead.productInterest || 'Не указан'}`}
+
+Сообщение клиента:
+${text}`,
         );
       }
 
