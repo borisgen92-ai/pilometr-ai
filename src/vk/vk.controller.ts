@@ -65,11 +65,16 @@ export class VkController {
     try {
       const sessionId = `vk-${peerId}`;
 
-      const aiAnswer = await this.chatService.processMessage(text, sessionId);
-
       const vkUserName = fromId
   ? await this.vkService.getUserName(fromId)
   : null;
+
+const aiAnswer = await this.chatService.processMessage(
+  vkUserName ? `${text}\nИмя клиента: ${vkUserName}` : text,
+  sessionId,
+);
+
+    
 
       await this.vkService.sendMessage(
         peerId,

@@ -786,7 +786,12 @@ ${productsContext}
   return digits;
 }
 
-private extractClientName(message: string): string | null {
+private extractClientName(message: string): string | null { 
+     const vkNameMatch = message.match(/Имя клиента:\s*(.+)$/im);
+
+  if (vkNameMatch?.[1]) {
+    return vkNameMatch[1].trim();
+  }
 
   const withoutPhone = message
 
