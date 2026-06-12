@@ -210,14 +210,55 @@ ${historyContext}
           : await this.productsService.search(searchQuery);
 
         const product = products[0];
+        if (products.length > 1) {
+          const options = products.slice(0, 5);
 
+          const response =
+            'Нашёл несколько похожих товаров. Уточните, пожалуйста, какой именно нужен:\n\n' +
+            options
+              .map(
+                (item, index) =>
+                  `${index + 1}. ${item.name}\n` +
+                  `Цена: ${item.price} ₽/${this.formatUnit(item.unit)}\n` +
+                  `Остаток: ${item.stock} ${this.formatUnit(item.unit)}`,
+              )
+              .join('\n\n') +
+            '\n\nПосле выбора передам заявку менеджеру.';
+
+          return this.saveAndReturn(sessionId, response, {
+            userMessage: message,
+            sessionId,
+            intent,
+            response,
+            products: options,
+            lead: null,
+            source: 'intent_contact_need_product_choice',
+          });
+        }
+        
         lead = await this.leadsService.create({
-          phone,
-          clientName: clientName || undefined,
-          source: 'chat',
-          aiSummary: `[Категория: Контакт] ${message}`,
-          productInterest: product?.name || interest,
-        });
+  phone,
+  clientName: clientName || undefined,
+  source: 'chat',
+  aiSummary: `[Категория: Контакт] ${message}`,
+  productInterest: product?.name || interest,
+
+  productId: product?.id,
+  productName: product?.name,
+  productPrice: product?.price,
+  productUnit: product?.unit,
+  requestedQuantity: this.extractQuantity(message) || undefined,
+  warehouseStock: product
+    ? {
+        volhov: product.volhovStock ?? 0,
+        sever: product.skotnoeStock ?? 0,
+        marino: product.lomonosovStock ?? 0,
+        roshino: product.roshinoStock ?? 0,
+        ladoga: product.ladogaStock ?? 0,
+      }
+    : undefined,
+  bestWarehouse: product ? this.getBestWarehouse(product) : undefined,
+});
 
         const response =
           'Спасибо, номер получил. Передам заявку менеджеру — он свяжется с вами и поможет с заказом.';
@@ -704,6 +745,20 @@ ${productsContext}
 Размеры: ${item.height}х${item.width}х${item.length} мм`,
       )
       .join('\n\n');
+  }
+
+    private getBestWarehouse(product: any): string {
+    const warehouses = [
+      { name: 'Волхов', stock: product.volhovStock ?? 0 },
+      { name: 'Север', stock: product.skotnoeStock ?? 0 },
+      { name: 'Марьино', stock: product.lomonosovStock ?? 0 },
+      { name: 'Рощино', stock: product.roshinoStock ?? 0 },
+      { name: 'Ладога', stock: product.ladogaStock ?? 0 },
+    ];
+
+    const best = warehouses.sort((a, b) => b.stock - a.stock)[0];
+
+    return best?.stock > 0 ? best.name : 'Нет положительного остатка';
   }
 
   private formatWarehouseStock(product: any): string {
