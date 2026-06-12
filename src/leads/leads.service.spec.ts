@@ -15,6 +15,34 @@ export class LeadsService {
     private readonly leadNotesRepository: Repository<LeadNote>,
   ) {}
 
+  private async generateOrderNumber(source?: string): Promise<string> {
+    const prefix = source?.toUpperCase() || 'CRM';
+
+    const now = new Date();
+    const datePart = now
+      .toISOString()
+      .slice(0, 10)
+      .replace(/-/g, '');
+
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const countToday = await this.leadsRepository
+      .createQueryBuilder('lead')
+      .where('lead.createdAt BETWEEN :start AND :end', {
+        start: startOfDay,
+        end: endOfDay,
+      })
+      .getCount();
+
+    const sequence = String(countToday + 1).padStart(4, '0');
+
+    return `${prefix}-${datePart}-${sequence}`;
+  }
+
   async create(data: Partial<Lead>) {
     if (data.phone) {
       const existingActiveLead = await this.leadsRepository.findOne({

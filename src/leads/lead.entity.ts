@@ -68,7 +68,13 @@ export class Lead {
 
   @Column({ nullable: true })
   bestWarehouse: string;
-  
+
+  @Column({
+  nullable: true,
+  unique: true,
+})
+orderNumber: string;
+
   @Column({ nullable: true })
   source: string;
 

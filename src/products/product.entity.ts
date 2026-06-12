@@ -41,6 +41,9 @@ export class Product {
   @Column({ nullable: true })
   grade: string;
 
+  @Column({ nullable: true, unique: true })
+orderNumber: string;
+
   @Column({ nullable: true })
   humidity: string;
 
