@@ -53,6 +53,33 @@ export class ChatService {
     const historyContext =
       await this.messagesService.buildContext(sessionId);
 
+      const earlyPhone = this.extractPhone(message);
+
+const earlyMessageWithoutPhone = message
+  .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+  .trim();
+
+if (earlyPhone && message.replace(/\D/g, '').length >= 10) {
+  const response =
+    'Спасибо, номер получил. Заявка передана менеджеру — он свяжется с вами для подтверждения заказа.';
+
+  const lead = await this.leadsService.create({
+    phone: earlyPhone,
+    source: 'chat',
+    aiSummary: `[Категория: Контакт] ${historyContext}`,
+    productInterest: this.extractInterestFromHistory(historyContext) || 'Клиент оставил телефон после подбора товара',
+  });
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead,
+    source: 'early_phone_created_from_history',
+  });
+}
+
     const intent = detectIntent(message);
 
     const needsClarification = this.needsProductClarification(message);
@@ -197,17 +224,67 @@ ${historyContext}
 
         const clientName = this.extractClientName(message);
 
+                const messageWithoutPhone = message
+  .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
+  .trim();
+
+const isOnlyPhone = messageWithoutPhone.length === 0;
+
+        if (isOnlyPhone) {
+          lead = await this.leadsService.create({
+            phone,
+            clientName: clientName || undefined,
+            source: 'chat',
+            aiSummary: `[Категория: Контакт] ${historyInterest || historyContext}`,
+productInterest: historyInterest || 'Клиент оставил телефон после подбора товара',
+          });
+
+          const response =
+            'Спасибо, номер получил. Заявка передана менеджеру — он свяжется с вами для подтверждения заказа.';
+
+          return this.saveAndReturn(sessionId, response, {
+            userMessage: message,
+            sessionId,
+            intent,
+            response,
+            products: [],
+            lead,
+            source: 'intent_contact_created_from_history',
+          });
+        }
+
                 const dimensions = this.extractDimensions(message);
         const searchQuery = this.buildSearchQuery(message);
 
-        const products = dimensions
-          ? await this.productsService.findByDimensions(
+        let products = dimensions
+  ? await this.productsService.findByDimensions(
               dimensions.width,
               dimensions.height,
               dimensions.length,
               message,
             )
           : await this.productsService.search(searchQuery);
+
+          if (message.toLowerCase().includes('слэб')) {
+  products = products.filter((item) =>
+    item.name.toLowerCase().includes('слэб'),
+  );
+}
+
+        if (products.length === 0) {
+          const response =
+            'Не нашёл точный товар в каталоге по этому размеру. Уточните, пожалуйста: нужен именно слэб или другой товар? Можете написать примерный размер и количество — передам менеджеру после уточнения.';
+
+          return this.saveAndReturn(sessionId, response, {
+            userMessage: message,
+            sessionId,
+            intent,
+            response,
+            products: [],
+            lead: null,
+            source: 'intent_contact_product_not_found',
+          });
+        }
 
         const product = products[0];
         if (products.length > 1) {
@@ -235,7 +312,7 @@ ${historyContext}
             source: 'intent_contact_need_product_choice',
           });
         }
-        
+
         lead = await this.leadsService.create({
   phone,
   clientName: clientName || undefined,
@@ -307,6 +384,23 @@ ${historyContext}
     const quantity = this.extractQuantity(message);
     const dimensions = this.extractDimensions(message);
     const phone = this.extractPhone(message);
+
+    const pickupStoreMatch =
+  message.toLowerCase().match(/север|марьино|рощино|ладога/);
+
+if (pickupStoreMatch && !phone) {
+  const response =
+    'Для оформления заявки укажите, пожалуйста, номер телефона для связи. Менеджер проверит наличие и свяжется с вами для подтверждения заказа.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'need_phone_before_order_confirmation',
+  });
+}
 
     const normalizedMessage = message
       .replace(/экстра/gi, 'Э')
@@ -431,7 +525,7 @@ ${historyContext}
         `📍 Север — ${product.skotnoeStock} ${this.formatUnit(product.unit)}\n` +
         `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(product.unit)}\n` +
         `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(product.unit)}\n` +
-        `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(product.unit)}`;
+        `📍 Ладога — ${Math.max(0, product.ladogaStock ?? 0)} ${this.formatUnit(product.unit)}`;
 
       return this.saveAndReturn(sessionId, response, {
         userMessage: message,
@@ -651,6 +745,8 @@ ${productsContext}
 
     const productsContext = this.buildProductsContext(filteredProducts, 5);
 
+
+
     const aiResponse = await this.aiService.ask(
       `История диалога:
 ${historyContext}
@@ -671,6 +767,21 @@ ${productsContext}
 - Ладога = используй только остаток после строки "📍 Ладога".
 
 Никогда не называй общий остаток по всем точкам остатком конкретного склада.
+
+Никогда не предлагай клиенту Волхов как точку самовывоза.
+Волхов — внутренний склад, клиентам его не показываем.
+
+Если клиент хочет оформить заказ или спрашивает, как получить товар:
+- сначала уточни количество;
+- затем уточни способ получения: самовывоз или доставка;
+- если самовывоз — обязательно попроси выбрать магазин:
+  📍 Север
+  📍 Марьино
+  📍 Рощино
+  📍 Ладога
+
+Не создавай ощущение, что достаточно написать только "самовывоз".
+Для самовывоза всегда нужен конкретный магазин.
 
 Используй базу знаний Пилометра из system prompt.
 Если клиент спрашивает про стол или столешницу — опирайся на знания о мебельном щите 40 мм, 28 мм и сортах.
@@ -737,11 +848,10 @@ ${productsContext}
 Цена: ${item.price} ₽/${this.formatUnit(item.unit)}
 Общий остаток по всем точкам: ${item.stock} ${this.formatUnit(item.unit)}
 Остатки по точкам:
-📍 Волхов (завод) — ${item.volhovStock} ${this.formatUnit(item.unit)}
 📍 Север — ${item.skotnoeStock} ${this.formatUnit(item.unit)}
 📍 Марьино — ${item.lomonosovStock} ${this.formatUnit(item.unit)}
 📍 Рощино — ${item.roshinoStock} ${this.formatUnit(item.unit)}
-📍 Ладога — ${item.ladogaStock} ${this.formatUnit(item.unit)}
+📍 Ладога — ${Math.max(0, item.ladogaStock ?? 0)} ${this.formatUnit(item.unit)}
 Размеры: ${item.height}х${item.width}х${item.length} мм`,
       )
       .join('\n\n');
@@ -764,11 +874,10 @@ ${productsContext}
   private formatWarehouseStock(product: any): string {
     return (
       `Остатки по точкам:\n` +
-      `📍 Волхов (завод) — ${product.volhovStock} ${this.formatUnit(product.unit)}\n` +
       `📍 Север — ${product.skotnoeStock} ${this.formatUnit(product.unit)}\n` +
       `📍 Марьино — ${product.lomonosovStock} ${this.formatUnit(product.unit)}\n` +
       `📍 Рощино — ${product.roshinoStock} ${this.formatUnit(product.unit)}\n` +
-      `📍 Ладога — ${product.ladogaStock} ${this.formatUnit(product.unit)}`
+      `📍 Ладога — ${Math.max(0, product.ladogaStock ?? 0)} ${this.formatUnit(product.unit)}`
     );
   }
 
@@ -931,7 +1040,10 @@ private extractClientName(message: string): string | null {
 
   private buildSearchQuery(message: string): string {
     const text = message.toLowerCase();
-
+    if (text.includes('слэб')) {
+      return 'слэб';
+    }
+    
     if (text.includes('стол') || text.includes('столешниц')) {
       return 'щит 40';
     }

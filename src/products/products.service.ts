@@ -61,6 +61,20 @@ search(query: string) {
   ) {
     const normalizedKeyword = keyword?.toLowerCase() || '';
 
+    if (normalizedKeyword.includes('слэб')) {
+  return this.productsRepository
+    .createQueryBuilder('product')
+    .where(
+      '(LOWER(product.name) LIKE :slab OR LOWER(product.category) LIKE :slab)',
+      { slab: '%слэб%' },
+    )
+    .andWhere('product.height = :height', { height })
+    .orderBy('product.length', 'DESC')
+    .addOrderBy('product.stock', 'DESC')
+    .take(10)
+    .getMany();
+}
+
     const qb = this.productsRepository
       .createQueryBuilder('product')
       .where(
