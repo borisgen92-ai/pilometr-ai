@@ -27,7 +27,7 @@ export class MessagesService {
   }
 
   async buildContext(sessionId: string) {
-    const messages = await this.getRecentMessages(sessionId, 6);
+    const messages = await this.getRecentMessages(sessionId, 12);
 
     return messages
       .reverse()

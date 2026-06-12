@@ -59,16 +59,106 @@ const earlyMessageWithoutPhone = message
   .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
   .trim();
 
-if (earlyPhone && message.replace(/\D/g, '').length >= 10) {
-  const response =
-    'Спасибо, номер получил. Заявка передана менеджеру — он свяжется с вами для подтверждения заказа.';
+const hasOrderInfoWithPhone =
+  earlyMessageWithoutPhone.length > 0 &&
+  (
+    this.hasProductWords(earlyMessageWithoutPhone) ||
+    this.extractDimensions(earlyMessageWithoutPhone) ||
+    this.extractQuantity(earlyMessageWithoutPhone)
+  );
 
-  const lead = await this.leadsService.create({
-    phone: earlyPhone,
-    source: 'chat',
-    aiSummary: `[Категория: Контакт] ${historyContext}`,
-    productInterest: this.extractInterestFromHistory(historyContext) || 'Клиент оставил телефон после подбора товара',
-  });
+if (
+  earlyPhone &&
+  message.replace(/\D/g, '').length >= 10 &&
+  !hasOrderInfoWithPhone
+) {
+  const hasPickupStoreInHistory =
+    /север|марьино|рощино|ладога/i.test(historyContext);
+
+  if (!hasPickupStoreInHistory) {
+    const response =
+      'Спасибо, номер получил. Для оформления заявки выберите, пожалуйста, магазин для самовывоза:\n\n' +
+      '📍 Север\n' +
+      '📍 Марьино\n' +
+      '📍 Рощино\n' +
+      '📍 Ладога';
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: [],
+      lead: null,
+      source: 'phone_received_waiting_for_pickup_store',
+    });
+  }
+
+  const response =
+  'Спасибо, номер получил. Заявка передана менеджеру — он свяжется с вами для подтверждения заказа.';
+
+const orderSummary =
+  this.extractInterestFromHistory(historyContext) ||
+  'Клиент оставил телефон после подбора товара';
+
+  const orderQuantity = this.extractQuantity(orderSummary);
+const orderWarehouse = this.extractWarehouse(orderSummary);
+
+const orderDimensions = this.extractDimensions(orderSummary);
+const orderSearchQuery = this.buildSearchQuery(orderSummary);
+
+let orderProduct: any = null;
+
+if (orderDimensions) {
+  const foundProducts = await this.productsService.findByDimensions(
+    orderDimensions.width,
+    orderDimensions.height,
+    orderDimensions.length,
+    orderSummary,
+  );
+
+  orderProduct = foundProducts[0] || null;
+} else {
+  const foundProducts = await this.productsService.search(orderSearchQuery);
+  orderProduct = foundProducts[0] || null;
+}
+
+const selectedWarehouseStock = orderProduct
+  ? this.getWarehouseStock(orderProduct, orderWarehouse)
+  : null;
+
+const orderBudget =
+  orderProduct && orderQuantity
+    ? orderProduct.price * orderQuantity
+    : null;
+
+const managerSummary =
+  `[Категория: Заказ]\n` +
+  `Интерес: ${orderSummary}\n\n` +
+  `История диалога:\n${historyContext}`;
+
+const lead = await this.leadsService.create({
+  phone: earlyPhone,
+  source: 'chat',
+  aiSummary: managerSummary,
+  productInterest: orderSummary,
+
+  productId: orderProduct?.id,
+  productName: orderProduct?.name,
+  productPrice: orderProduct?.price,
+  productUnit: orderProduct?.unit,
+  requestedQuantity: orderQuantity || undefined,
+  warehouseStock: orderProduct
+  ? {
+      volhov: orderProduct.volhovStock ?? 0,
+      sever: orderProduct.skotnoeStock ?? 0,
+      marino: orderProduct.lomonosovStock ?? 0,
+      roshino: orderProduct.roshinoStock ?? 0,
+      ladoga: orderProduct.ladogaStock ?? 0,
+    }
+  : undefined,
+  bestWarehouse: orderWarehouse || undefined,
+  budget: orderBudget ?? undefined,
+});
 
   return this.saveAndReturn(sessionId, response, {
     userMessage: message,
@@ -236,7 +326,10 @@ const isOnlyPhone = messageWithoutPhone.length === 0;
             clientName: clientName || undefined,
             source: 'chat',
             aiSummary: `[Категория: Контакт] ${historyInterest || historyContext}`,
-productInterest: historyInterest || 'Клиент оставил телефон после подбора товара',
+productInterest:
+  directInterest ||
+  historyInterest ||
+  'Клиент оставил телефон после подбора товара',
           });
 
           const response =
@@ -566,16 +659,6 @@ if (pickupStoreMatch && !phone) {
 
       let lead: Lead | null = null;
 
-      if (phone) {
-        lead = await this.leadsService.create({
-          phone,
-          source: 'chat',
-          aiSummary: `[Категория: ${this.detectLeadCategory(
-            message,
-          )}] ${message}`,
-          productInterest: this.cleanProductInterest(message),
-        });
-      }
 
       const aiResponse = await this.aiService.ask(
         `История диалога:
@@ -668,6 +751,24 @@ ${productsContext}
               product.price,
               volumeResult.totalVolume,
             );
+
+            if (phone) {
+  lead = await this.leadsService.create({
+    phone,
+    source: 'chat',
+    aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
+    productInterest: this.cleanProductInterest(message),
+
+    productId: product.id,
+    productName: product.name,
+    productPrice: product.price,
+    productUnit: product.unit,
+    requestedQuantity: quantity,
+    warehouseStock: product.stock,
+    bestWarehouse: this.getBestWarehouse(product),
+    budget: totalCost,
+  });
+}
 
       const stockStatus =
         product.stock >= quantity
@@ -833,7 +934,9 @@ ${productsContext}
       .replace(/хочу купить/gi, '')
       .replace(/оформить/gi, '')
       .replace(/заказать/gi, '')
+      .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
       .replace(/[,.]/g, '')
+      .replace(/имя клиента:.*$/gi, '')
       .trim()
       .slice(0, 100);
   }
@@ -870,6 +973,24 @@ ${productsContext}
 
     return best?.stock > 0 ? best.name : 'Нет положительного остатка';
   }
+
+  private getWarehouseStock(product: any, warehouse: string | null): number | null {
+  if (!warehouse) return null;
+
+  const normalized = warehouse.toLowerCase();
+
+  if (normalized.includes('север')) return product.skotnoeStock ?? 0;
+  if (normalized.includes('марьино')) return product.lomonosovStock ?? 0;
+  if (normalized.includes('рощино')) return product.roshinoStock ?? 0;
+  if (normalized.includes('ладога')) return product.ladogaStock ?? 0;
+
+  return null;
+}
+
+private extractWarehouse(message: string): string | null {
+  const match = message.match(/север|марьино|рощино|ладога/i);
+  return match ? match[0] : null;
+}
 
   private formatWarehouseStock(product: any): string {
     return (
@@ -1087,82 +1208,95 @@ if (text.includes('налич')) {
     return message;
   }
 
-  private extractInterestFromHistory(historyContext: string): string {
-    const text = historyContext.toLowerCase();
+ private extractInterestFromHistory(historyContext: string): string | null {
+  const clientLines = historyContext
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.toLowerCase().startsWith('клиент:'))
+    .map((line) => line.replace(/^клиент:/i, '').trim());
 
-    const parts: string[] = [];
+  const orderParts: string[] = [];
 
-    if (text.includes('слэб')) {
-      parts.push('Слэб');
-    }
-
-        if (text.includes('щит')) {
-      parts.push('Щит');
-    }
-
-    if (text.includes('брусок')) {
-      parts.push('Брусок');
-    }
-
-    if (text.includes('брус')) {
-      parts.push('Брус');
-    }
-
-    if (text.includes('ступень') || text.includes('ступени')) {
-      parts.push('Ступень');
-    }
-
-    const dimensionsMatch = historyContext.match(
-      /(\d{2,3})[хx](\d{2,3})[хx](\d{3,4})/,
-    );
-
-    if (dimensionsMatch) {
-      parts.push(dimensionsMatch[0]);
-    }
-
-    const quantityMatches = [
-      ...historyContext.matchAll(
-        /(\d+)\s*(шт|штук|штуки)/gi,
+  const productLine = [...clientLines]
+    .reverse()
+    .find((line) =>
+      /щит|слэб|доска|брус|брусок|рейка|ступень|столешница|подоконник|мульча/i.test(
+        line,
       ),
-    ];
-
-    const clientQuantityMatch = quantityMatches.find(
-      (match) => Number(match[1]) < 100,
     );
 
-    if (clientQuantityMatch) {
-      parts.push(`${clientQuantityMatch[1]} шт`);
-    }
-    if (text.includes('экстра') || text.includes('сорт э')) {
-      parts.push('Сорт Экстра');
-    }
-
-    if (text.includes('сорт а')) {
-      parts.push('Сорт А');
-    }
-
-    if (text.includes('сорт в')) {
-      parts.push('Сорт В');
-    }
-    
-    if (text.includes('рощино')) {
-      parts.push('Рощино');
-    }
-
-    if (text.includes('север')) {
-      parts.push('Север');
-    }
-
-    if (text.includes('марьино')) {
-      parts.push('Марьино');
-    }
-
-    if (text.includes('ладога')) {
-      parts.push('Ладога');
-    }
-
-    return parts.length > 0 ? parts.join(', ') : '';
+  if (productLine) {
+    orderParts.push(this.cleanProductInterest(productLine));
   }
+
+  const dimensionsLine = [...clientLines]
+    .reverse()
+    .find((line) => /\d{2,4}\s*[хx]\s*\d{2,4}\s*[хx]\s*\d{2,4}/i.test(line));
+
+  if (dimensionsLine && dimensionsLine !== productLine) {
+    const match = dimensionsLine.match(
+      /\d{2,4}\s*[хx]\s*\d{2,4}\s*[хx]\s*\d{2,4}/i,
+    );
+
+    if (match) {
+      orderParts.push(match[0].replace(/\s+/g, ''));
+    }
+  }
+
+  const sortLine = [...clientLines]
+    .reverse()
+    .find((line) => /сорт\s*[а-яa-z]|сорт|экстра|\bэ\b|\bа\b|\bб\b|\bв\b/i.test(line));
+
+  if (sortLine) {
+  const sortMatch = sortLine.match(
+    /сорт\s*[а-яa-z]|экстра|\bэ\b|\bа\b|\bб\b|\bв\b/i,
+  );
+
+  if (sortMatch) {
+    const sortText = `сорт ${sortMatch[0].replace(/сорт/i, '').trim()}`.trim();
+
+    const alreadyHasSort = orderParts.some((part) =>
+      part.toLowerCase().includes(sortText.toLowerCase()),
+    );
+
+    if (!alreadyHasSort) {
+      orderParts.push(sortText);
+    }
+  }
+}
+
+  const quantityLine = [...clientLines]
+    .reverse()
+    .find((line) => /\d+\s*(шт|штук|штуки)/i.test(line));
+
+  if (quantityLine) {
+    const quantityMatch = quantityLine.match(/\d+\s*(шт|штук|штуки)/i);
+
+    if (quantityMatch) {
+      orderParts.push(quantityMatch[0]);
+    }
+  }
+
+  const warehouseLine = [...clientLines]
+    .reverse()
+    .find((line) => /север|марьино|рощино|ладога/i.test(line));
+
+  if (warehouseLine) {
+    const warehouseMatch = warehouseLine.match(/север|марьино|рощино|ладога/i);
+
+    if (warehouseMatch) {
+      orderParts.push(warehouseMatch[0]);
+    }
+  }
+
+  const result = orderParts
+    .filter(Boolean)
+    .join(', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return result || null;
+}
 
   private needsProductClarification(message: string): boolean {
     const text = message.toLowerCase();

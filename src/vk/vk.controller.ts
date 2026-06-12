@@ -83,30 +83,72 @@ const aiAnswer = await this.chatService.processMessage(
 
             if (aiAnswer.lead && !(aiAnswer.lead as any).isDuplicate) {
         const lead = aiAnswer.lead as any;
-        const product = (aiAnswer as any).product || (aiAnswer as any).products?.[0];
 
-        const productText = product
-          ? `
+          const stock = lead.warehouseStock as any;
+const selectedWarehouseRaw = lead.bestWarehouse || 'Не указан';
 
+const selectedWarehouse =
+  selectedWarehouseRaw === 'Не указан'
+    ? selectedWarehouseRaw
+    : selectedWarehouseRaw.charAt(0).toUpperCase() +
+      selectedWarehouseRaw.slice(1).toLowerCase();
+
+const selectedStock =
+  selectedWarehouse.toLowerCase().includes('север')
+    ? stock?.sever
+    : selectedWarehouse.toLowerCase().includes('марьино')
+      ? stock?.marino
+      : selectedWarehouse.toLowerCase().includes('рощино')
+        ? stock?.roshino
+        : selectedWarehouse.toLowerCase().includes('ладога')
+          ? stock?.ladoga
+          : null;
+
+const shortage =
+  lead.requestedQuantity && selectedStock !== null
+    ? Math.max(0, lead.requestedQuantity - selectedStock)
+    : null;
+
+const productText = lead.productName
+  ? `
 📦 Товар:
-${product.name}
+${lead.productName}
 
-💰 Цена: ${product.price} ₽ / ${product.unit}
+🔢 Количество:
+${lead.requestedQuantity || 'Не указано'} ${lead.productUnit || ''}
 
-📍 Остатки:
-Волхов: ${product.volhovStock ?? 0}
-Север: ${product.skotnoeStock ?? 0}
-Марьино: ${product.lomonosovStock ?? 0}
-Рощино: ${product.roshinoStock ?? 0}
-Ладога: ${product.ladogaStock ?? 0}`
-          : '';
+📍 Выбранный магазин:
+${selectedWarehouse}
+
+📦 Остаток в магазине:
+${selectedStock ?? 'Не указан'} ${lead.productUnit || ''}
+
+${
+  shortage && shortage > 0
+    ? `⚠️ Не хватает:\n${shortage} ${lead.productUnit || ''}`
+    : `✅ В наличии достаточно`
+}
+
+💰 Цена:
+${lead.productPrice || 'Не указано'} ₽/${lead.productUnit || ''}
+
+💵 Сумма:
+${lead.budget || 'Не указано'} ₽`
+  : '';
+
+          const interestText = lead.productInterest || 'Не указан';
+
+const fallbackLeadText =
+  `📦 Заявка:\n` +
+  `${interestText}\n\n` +
+  `📞 Телефон: ${lead.phone}`;
 
         await this.vkService.sendManagerNotification(
           `🔥 Новая заявка из VK
 
 Имя: ${vkUserName || lead.clientName || 'Не указано'}
 Телефон: ${lead.phone}
-${productText || `Интерес: ${lead.productInterest || 'Не указан'}`}
+${productText || fallbackLeadText}
 
 Сообщение клиента:
 ${text}
@@ -120,7 +162,7 @@ ID диалога: ${sessionId}`,
           `📌 Заявка создана для менеджера
 
 Телефон: ${lead.phone}
-${productText || `Интерес: ${lead.productInterest || 'Не указан'}`}
+${productText || fallbackLeadText}
 
 Сообщение клиента:
 ${text}`,
