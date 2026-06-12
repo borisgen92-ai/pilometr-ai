@@ -1096,6 +1096,22 @@ if (text.includes('налич')) {
       parts.push('Слэб');
     }
 
+        if (text.includes('щит')) {
+      parts.push('Щит');
+    }
+
+    if (text.includes('брусок')) {
+      parts.push('Брусок');
+    }
+
+    if (text.includes('брус')) {
+      parts.push('Брус');
+    }
+
+    if (text.includes('ступень') || text.includes('ступени')) {
+      parts.push('Ступень');
+    }
+
     const dimensionsMatch = historyContext.match(
       /(\d{2,3})[хx](\d{2,3})[хx](\d{3,4})/,
     );
@@ -1117,7 +1133,18 @@ if (text.includes('налич')) {
     if (clientQuantityMatch) {
       parts.push(`${clientQuantityMatch[1]} шт`);
     }
+    if (text.includes('экстра') || text.includes('сорт э')) {
+      parts.push('Сорт Экстра');
+    }
 
+    if (text.includes('сорт а')) {
+      parts.push('Сорт А');
+    }
+
+    if (text.includes('сорт в')) {
+      parts.push('Сорт В');
+    }
+    
     if (text.includes('рощино')) {
       parts.push('Рощино');
     }
