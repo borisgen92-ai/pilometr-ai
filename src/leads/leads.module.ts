@@ -5,11 +5,12 @@ import { Lead } from './lead.entity';
 import { LeadNote } from './lead-note.entity';
 import { LeadsService } from './leads.service';
 import { LeadsController } from './leads.controller';
+import { VkService } from '../vk/vk.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Lead, LeadNote])],
   controllers: [LeadsController],
-  providers: [LeadsService],
+  providers: [LeadsService, VkService],
   exports: [LeadsService],
 })
 export class LeadsModule {}

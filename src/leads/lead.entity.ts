@@ -32,7 +32,31 @@ export class Lead {
   telegramId: string;
 
   @Column({ nullable: true })
+  vkPeerId: string;
+
+  @Column({ nullable: true })
   productInterest: string;
+
+  @Column({
+  type: 'jsonb',
+  nullable: true,
+})
+items: {
+  productId?: string;
+  productName: string;
+  productPrice?: number;
+  productUnit?: string;
+  requestedQuantity?: number;
+  warehouseStock?: {
+    volhov: number;
+    sever: number;
+    marino: number;
+    roshino: number;
+    ladoga: number;
+  };
+  bestWarehouse?: string;
+}[];
+
   @Column({ nullable: true })
   productId: string;
 

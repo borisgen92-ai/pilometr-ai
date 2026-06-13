@@ -18,7 +18,13 @@ export class ChatService {
     private readonly messagesService: MessagesService,
   ) {}
 
-  async processMessage(message: string, sessionId = 'test-session') {
+  async processMessage(
+  message: string,
+  sessionId = 'test-session',
+  meta?: {
+    vkPeerId?: string;
+  },
+) {
     const cleanMessage = message.trim().toLowerCase();
 
     if (cleanMessage.includes('мульч')) {
@@ -55,6 +61,91 @@ export class ChatService {
 
       const earlyPhone = this.extractPhone(message);
 
+      const isConfirmationMessage =
+  /в[ссёе]\s*верно|подтверждаю|да|оформляйте|можно оформлять/i.test(message);
+
+const phoneFromHistoryForConfirmation = this.extractPhone(historyContext);
+
+if (isConfirmationMessage && phoneFromHistoryForConfirmation) {
+  const orderSummary =
+    this.extractLastProductContext(historyContext) ||
+    this.extractInterestFromHistory(historyContext) ||
+    'Клиент подтвердил заявку';
+
+  const phoneFromHistory = phoneFromHistoryForConfirmation;
+
+  if (phoneFromHistory) {
+    const orderQuantity = this.extractQuantity(orderSummary);
+    const orderWarehouse = this.extractWarehouse(orderSummary);
+    const orderDimensions = this.extractDimensions(orderSummary);
+
+    let orderProduct: any = null;
+
+    if (orderDimensions) {
+      const foundProducts = await this.productsService.findByDimensions(
+        orderDimensions.width,
+        orderDimensions.height,
+        orderDimensions.length,
+        orderSummary,
+      );
+
+      orderProduct = foundProducts[0] || null;
+    }
+
+    const lead = await this.leadsService.create({
+      phone: phoneFromHistory,
+      clientName: this.extractClientName(historyContext) || undefined,
+      source: meta?.vkPeerId ? 'vk' : 'chat',
+      vkPeerId: meta?.vkPeerId,
+      aiSummary:
+        `[Категория: Заказ]\n` +
+        `Интерес: ${orderSummary}\n\n` +
+        `История диалога:\n${historyContext}`,
+      productInterest: orderSummary,
+
+      items: orderProduct
+        ? [
+            {
+              productId: orderProduct.id,
+              productName: orderProduct.name,
+              productPrice: orderProduct.price,
+              productUnit: orderProduct.unit,
+              requestedQuantity: orderQuantity || undefined,
+              warehouseStock: {
+                volhov: orderProduct.volhovStock ?? 0,
+                sever: orderProduct.skotnoeStock ?? 0,
+                marino: orderProduct.lomonosovStock ?? 0,
+                roshino: orderProduct.roshinoStock ?? 0,
+                ladoga: orderProduct.ladogaStock ?? 0,
+              },
+              bestWarehouse: orderWarehouse || undefined,
+            },
+          ]
+        : undefined,
+
+      productId: orderProduct?.id,
+      productName: orderProduct?.name,
+      productPrice: orderProduct?.price,
+      productUnit: orderProduct?.unit,
+      requestedQuantity: orderQuantity || undefined,
+      bestWarehouse: orderWarehouse || undefined,
+      budget: orderProduct && orderQuantity ? orderProduct.price * orderQuantity : undefined,
+    });
+
+    const response =
+      'Спасибо, заявка создана. Менеджер свяжется с вами для подтверждения заказа.';
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: orderProduct ? [orderProduct] : [],
+      lead,
+      source: 'confirmed_order_created_from_history',
+    });
+  }
+}
+
 const earlyMessageWithoutPhone = message
   .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
   .trim();
@@ -74,6 +165,54 @@ if (
 ) {
   const hasPickupStoreInHistory =
     /север|марьино|рощино|ладога/i.test(historyContext);
+
+    const orderSummaryBeforePhone =
+  this.extractLastProductContext(historyContext) ||
+  this.extractInterestFromHistory(historyContext) ||
+  earlyMessageWithoutPhone;
+
+const orderDimensionsBeforePhone =
+  this.extractDimensions(orderSummaryBeforePhone);
+
+const orderSearchQueryBeforePhone =
+  this.buildSearchQuery(orderSummaryBeforePhone);
+
+let orderProductBeforePhone: any = null;
+
+if (orderDimensionsBeforePhone) {
+  const foundProducts = await this.productsService.findByDimensions(
+    orderDimensionsBeforePhone.width,
+    orderDimensionsBeforePhone.height,
+    orderDimensionsBeforePhone.length,
+    orderSummaryBeforePhone,
+  );
+
+  orderProductBeforePhone = foundProducts[0] || null;
+} else {
+  const foundProducts = await this.productsService.search(
+    orderSearchQueryBeforePhone,
+  );
+
+  orderProductBeforePhone = foundProducts[0] || null;
+}
+
+console.log('PHONE HISTORY CONTEXT:', historyContext);
+console.log('ORDER SUMMARY BEFORE PHONE:', orderSummaryBeforePhone);
+console.log('ORDER DIMENSIONS BEFORE PHONE:', orderDimensionsBeforePhone);
+
+if (!orderProductBeforePhone) {
+  const response =
+    'Не нашёл такой товар в каталоге. Уточните, пожалуйста, размер, толщину, сорт и нужное количество — после этого проверю наличие и помогу оформить заявку.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'phone_received_but_product_not_found',
+  });
+}
 
   if (!hasPickupStoreInHistory) {
     const response =
@@ -97,8 +236,11 @@ if (
   'Спасибо, номер получил. Заявка передана менеджеру — он свяжется с вами для подтверждения заказа.';
 
 const orderSummary =
+  this.extractLastProductContext(historyContext) ||
   this.extractInterestFromHistory(historyContext) ||
   'Клиент оставил телефон после подбора товара';
+
+  console.log('FINAL ORDER SUMMARY:', orderSummary);
 
   const orderQuantity = this.extractQuantity(orderSummary);
 const orderWarehouse = this.extractWarehouse(orderSummary);
@@ -106,20 +248,20 @@ const orderWarehouse = this.extractWarehouse(orderSummary);
 const orderDimensions = this.extractDimensions(orderSummary);
 const orderSearchQuery = this.buildSearchQuery(orderSummary);
 
-let orderProduct: any = null;
+let orderProduct: any = orderProductBeforePhone;
 
-if (orderDimensions) {
-  const foundProducts = await this.productsService.findByDimensions(
-    orderDimensions.width,
-    orderDimensions.height,
-    orderDimensions.length,
-    orderSummary,
-  );
+if (!orderProduct) {
+  const response =
+    'Не нашёл такой товар в каталоге. Уточните, пожалуйста, размер, толщину, сорт и нужное количество — после этого проверю наличие и помогу оформить заявку.';
 
-  orderProduct = foundProducts[0] || null;
-} else {
-  const foundProducts = await this.productsService.search(orderSearchQuery);
-  orderProduct = foundProducts[0] || null;
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'early_phone_product_not_found',
+  });
 }
 
 const selectedWarehouseStock = orderProduct
@@ -138,9 +280,31 @@ const managerSummary =
 
 const lead = await this.leadsService.create({
   phone: earlyPhone,
-  source: 'chat',
+  clientName: this.extractClientName(message) || undefined,
+  source: meta?.vkPeerId ? 'vk' : 'chat',
+  vkPeerId: meta?.vkPeerId,
   aiSummary: managerSummary,
   productInterest: orderSummary,
+
+  items: orderProduct
+  ? [
+      {
+        productId: orderProduct.id,
+        productName: orderProduct.name,
+        productPrice: orderProduct.price,
+        productUnit: orderProduct.unit,
+        requestedQuantity: orderQuantity || undefined,
+        warehouseStock: {
+          volhov: orderProduct.volhovStock ?? 0,
+          sever: orderProduct.skotnoeStock ?? 0,
+          marino: orderProduct.lomonosovStock ?? 0,
+          roshino: orderProduct.roshinoStock ?? 0,
+          ladoga: orderProduct.ladogaStock ?? 0,
+        },
+        bestWarehouse: orderWarehouse || undefined,
+      },
+    ]
+  : undefined,
 
   productId: orderProduct?.id,
   productName: orderProduct?.name,
@@ -322,9 +486,10 @@ const isOnlyPhone = messageWithoutPhone.length === 0;
 
         if (isOnlyPhone) {
           lead = await this.leadsService.create({
-            phone,
-            clientName: clientName || undefined,
-            source: 'chat',
+  phone,
+  clientName: clientName || undefined,
+  source: meta?.vkPeerId ? 'vk' : 'chat',
+  vkPeerId: meta?.vkPeerId,
             aiSummary: `[Категория: Контакт] ${historyInterest || historyContext}`,
 productInterest:
   directInterest ||
@@ -409,9 +574,30 @@ productInterest:
         lead = await this.leadsService.create({
   phone,
   clientName: clientName || undefined,
-  source: 'chat',
+  source: meta?.vkPeerId ? 'vk' : 'chat',
+  vkPeerId: meta?.vkPeerId,
   aiSummary: `[Категория: Контакт] ${message}`,
   productInterest: product?.name || interest,
+
+  items: product
+  ? [
+      {
+        productId: product.id,
+        productName: product.name,
+        productPrice: product.price,
+        productUnit: product.unit,
+        requestedQuantity: this.extractQuantity(message) || undefined,
+        warehouseStock: {
+          volhov: product.volhovStock ?? 0,
+          sever: product.skotnoeStock ?? 0,
+          marino: product.lomonosovStock ?? 0,
+          roshino: product.roshinoStock ?? 0,
+          ladoga: product.ladogaStock ?? 0,
+        },
+        bestWarehouse: this.getBestWarehouse(product),
+      },
+    ]
+  : undefined,
 
   productId: product?.id,
   productName: product?.name,
@@ -478,10 +664,69 @@ productInterest:
     const dimensions = this.extractDimensions(message);
     const phone = this.extractPhone(message);
 
+    const hasQuantityAndStore =
+  this.extractQuantity(message) &&
+  this.extractWarehouse(message) &&
+  !phone &&
+  !dimensions &&
+  !this.hasProductWords(message);
+
+if (hasQuantityAndStore) {
+  const response =
+    'Понял, количество и магазин записал. Для оформления заявки укажите, пожалуйста, номер телефона для связи.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'quantity_and_store_waiting_for_phone',
+  });
+}
+
     const pickupStoreMatch =
   message.toLowerCase().match(/север|марьино|рощино|ладога/);
 
-if (pickupStoreMatch && !phone) {
+const hasProductInfoForPickup =
+  !!dimensions ||
+  /щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(message);
+
+if (pickupStoreMatch && !phone && hasProductInfoForPickup) {
+  const dimensionsForCheck = this.extractDimensions(message);
+
+let productFromSearch: any = null;
+
+if (dimensionsForCheck) {
+  const productsByDimensions = await this.productsService.findByDimensions(
+    dimensionsForCheck.width,
+    dimensionsForCheck.height,
+    dimensionsForCheck.length,
+    message,
+  );
+
+  productFromSearch = productsByDimensions[0] || null;
+} else {
+  const searchQuery = this.buildSearchQuery(message);
+  const productsBySearch = await this.productsService.search(searchQuery);
+
+  productFromSearch = productsBySearch[0] || null;
+}
+
+  if (!productFromSearch) {
+    const response =
+      'Не нашёл такой товар в каталоге. Уточните, пожалуйста, размер, толщину, сорт и нужное количество — после этого проверю наличие и помогу оформить заявку.';
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: [],
+      lead: null,
+      source: 'product_not_found_before_phone_request',
+    });
+  }
+
   const response =
     'Для оформления заявки укажите, пожалуйста, номер телефона для связи. Менеджер проверит наличие и свяжется с вами для подтверждения заказа.';
 
@@ -489,7 +734,7 @@ if (pickupStoreMatch && !phone) {
     userMessage: message,
     sessionId,
     response,
-    products: [],
+    products: [productFromSearch],
     lead: null,
     source: 'need_phone_before_order_confirmation',
   });
@@ -726,9 +971,10 @@ ${productsContext}
 
     if (phone) {
       lead = await this.leadsService.create({
-        phone,
-        source: 'chat',
-        aiSummary: `[Категория: ${this.detectLeadCategory(
+  phone,
+  source: meta?.vkPeerId ? 'vk' : 'chat',
+  vkPeerId: meta?.vkPeerId,
+  aiSummary: `[Категория: ${this.detectLeadCategory(
           message,
         )}] ${message}`,
         productInterest: this.cleanProductInterest(message),
@@ -754,10 +1000,29 @@ ${productsContext}
 
             if (phone) {
   lead = await this.leadsService.create({
-    phone,
-    source: 'chat',
-    aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
+  phone,
+  source: meta?.vkPeerId ? 'vk' : 'chat',
+  vkPeerId: meta?.vkPeerId,
+  aiSummary: `[Категория: ${this.detectLeadCategory(message)}] ${message}`,
     productInterest: this.cleanProductInterest(message),
+
+    items: [
+  {
+    productId: product.id,
+    productName: product.name,
+    productPrice: product.price,
+    productUnit: product.unit,
+    requestedQuantity: quantity,
+    warehouseStock: {
+      volhov: product.volhovStock ?? 0,
+      sever: product.skotnoeStock ?? 0,
+      marino: product.lomonosovStock ?? 0,
+      roshino: product.roshinoStock ?? 0,
+      ladoga: product.ladogaStock ?? 0,
+    },
+    bestWarehouse: this.getBestWarehouse(product),
+  },
+],
 
     productId: product.id,
     productName: product.name,
@@ -1296,6 +1561,32 @@ if (text.includes('налич')) {
     .trim();
 
   return result || null;
+}
+
+private extractLastProductContext(historyContext: string): string | null {
+  const lines = historyContext
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const productLines = lines.filter((line) =>
+    /щит|брус|доск|слэб|ступ|тетив|поруч|баляс|\d+\s*[xх]\s*\d+\s*[xх]\s*\d+/i.test(
+      line,
+    ),
+  );
+
+  if (productLines.length === 0) {
+    return null;
+  }
+
+  const lastProductLine = productLines[productLines.length - 1];
+
+  const afterLastProduct = lines.slice(lines.lastIndexOf(lastProductLine) + 1);
+  const details = afterLastProduct.filter((line) =>
+    /\d+\s*шт|север|марьино|рощино|ладога/i.test(line),
+  );
+
+  return [lastProductLine, ...details].join(' ');
 }
 
   private needsProductClarification(message: string): boolean {

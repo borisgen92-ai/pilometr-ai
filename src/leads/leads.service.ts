@@ -4,44 +4,46 @@ import { In, Repository } from 'typeorm';
 
 import { Lead, LeadStatus } from './lead.entity';
 import { LeadNote } from './lead-note.entity';
+import { VkService } from '../vk/vk.service';
 
 @Injectable()
 export class LeadsService {
   constructor(
-    @InjectRepository(Lead)
-    private readonly leadsRepository: Repository<Lead>,
+  @InjectRepository(Lead)
+  private readonly leadsRepository: Repository<Lead>,
 
-    @InjectRepository(LeadNote)
-    private readonly leadNotesRepository: Repository<LeadNote>,
-    ) {}
+  @InjectRepository(LeadNote)
+  private readonly leadNotesRepository: Repository<LeadNote>,
+
+  private readonly vkService: VkService,
+) {}
 
   private async generateOrderNumber(source?: string): Promise<string> {
-    const prefix = source?.toUpperCase() || 'CRM';
+  const prefix = source?.toUpperCase() || 'CRM';
 
-    const now = new Date();
-    const datePart = now
-      .toISOString()
-      .slice(0, 10)
-      .replace(/-/g, '');
+  const now = new Date();
+  const datePart = now
+    .toISOString()
+    .slice(0, 10)
+    .replace(/-/g, '');
 
-    const startOfDay = new Date(now);
-    startOfDay.setHours(0, 0, 0, 0);
+  for (let attempt = 1; attempt <= 9999; attempt++) {
+    const sequence = String(attempt).padStart(4, '0');
+    const orderNumber = `${prefix}-${datePart}-${sequence}`;
 
-    const endOfDay = new Date(now);
-    endOfDay.setHours(23, 59, 59, 999);
+    const existingLead = await this.leadsRepository.findOne({
+      where: {
+        orderNumber,
+      },
+    });
 
-    const countToday = await this.leadsRepository
-      .createQueryBuilder('lead')
-      .where('lead.createdAt BETWEEN :start AND :end', {
-        start: startOfDay,
-        end: endOfDay,
-      })
-      .getCount();
-
-    const sequence = String(countToday + 1).padStart(4, '0');
-
-    return `${prefix}-${datePart}-${sequence}`;
+    if (!existingLead) {
+      return orderNumber;
+    }
   }
+
+  return `${prefix}-${datePart}-${Date.now()}`;
+}
 
   async create(data: Partial<Lead>) {
     if (data.phone) {
@@ -72,10 +74,24 @@ export class LeadsService {
         existingActiveLead.productInterest =
           data.productInterest || existingActiveLead.productInterest;
 
+          const oldItems = existingActiveLead.items || [];
+const newItems = data.items || [];
+
+existingActiveLead.items = [...oldItems, ...newItems];
+
         existingActiveLead.aiSummary =
           data.aiSummary || existingActiveLead.aiSummary;
 
         existingActiveLead.source = data.source || existingActiveLead.source;
+
+        existingActiveLead.vkPeerId =
+  data.vkPeerId || existingActiveLead.vkPeerId;
+
+if (!existingActiveLead.orderNumber) {
+  existingActiveLead.orderNumber = await this.generateOrderNumber(
+    data.source || existingActiveLead.source,
+  );
+}
 
         await this.leadsRepository.save(existingActiveLead);
 
@@ -129,12 +145,27 @@ export class LeadsService {
   }
 
   async updateStatus(id: string, status: LeadStatus) {
-    const lead = await this.findOne(id);
+  const lead = await this.findOne(id);
 
-    lead.status = status;
+  lead.status = status;
 
-    return this.leadsRepository.save(lead);
+  const savedLead = await this.leadsRepository.save(lead);
+
+  if (status === LeadStatus.NEGOTIATION && savedLead.vkPeerId) {
+    const message =
+      `Ваш заказ № ${savedLead.orderNumber || savedLead.id} готов к выдаче.\n\n` +
+      `Товар в наличии, можете забирать заказ.\n\n` +
+      `Оплата производится при получении:\n` +
+      `• наличными;\n` +
+      `• банковской картой.\n\n` +
+      `Срок хранения заказа — 5 рабочих дней.\n\n` +
+      `Если возникнут вопросы, ответьте на это сообщение.`;
+
+    await this.vkService.sendMessage(Number(savedLead.vkPeerId), message);
   }
+
+  return savedLead;
+}
 
   async addNote(id: string, text: string, authorName = 'Менеджер') {
     const lead = await this.findOne(id);

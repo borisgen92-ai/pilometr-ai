@@ -72,6 +72,9 @@ export class VkController {
 const aiAnswer = await this.chatService.processMessage(
   vkUserName ? `${text}\nИмя клиента: ${vkUserName}` : text,
   sessionId,
+  {
+    vkPeerId: String(peerId),
+  },
 );
 
     
