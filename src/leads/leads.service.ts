@@ -47,62 +47,6 @@ const datePart = `${day}-${month}-${year}`;
 }
 
   async create(data: Partial<Lead>) {
-    if (data.phone) {
-      const existingActiveLead = await this.leadsRepository.findOne({
-        where: {
-          phone: data.phone,
-          status: In([
-            LeadStatus.NEW,
-            LeadStatus.IN_PROGRESS,
-            LeadStatus.NEGOTIATION,
-          ]),
-        },
-        order: {
-          createdAt: 'DESC',
-        },
-      });
-
-      if (existingActiveLead) {
-        if (
-  data.clientName &&
-  (!existingActiveLead.clientName ||
-    existingActiveLead.clientName.toLowerCase().includes('телефон') ||
-    existingActiveLead.clientName.length > 30)
-) {
-  existingActiveLead.clientName = data.clientName;
-}
-
-        existingActiveLead.productInterest =
-          data.productInterest || existingActiveLead.productInterest;
-
-          const oldItems = existingActiveLead.items || [];
-const newItems = data.items || [];
-
-existingActiveLead.items = [...oldItems, ...newItems];
-
-        existingActiveLead.aiSummary =
-          data.aiSummary || existingActiveLead.aiSummary;
-
-        existingActiveLead.source = data.source || existingActiveLead.source;
-
-        existingActiveLead.vkPeerId =
-  data.vkPeerId || existingActiveLead.vkPeerId;
-
-if (!existingActiveLead.orderNumber) {
-  existingActiveLead.orderNumber = await this.generateOrderNumber(
-    data.source || existingActiveLead.source,
-  );
-}
-
-        await this.leadsRepository.save(existingActiveLead);
-
-                return {
-          ...existingActiveLead,
-          isDuplicate: true,
-        };
-      }
-    }
-
     if (!data.orderNumber) {
       data.orderNumber = await this.generateOrderNumber(data.source);
     }

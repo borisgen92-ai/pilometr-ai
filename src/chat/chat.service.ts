@@ -851,36 +851,71 @@ if (pickupStoreMatch && !phone && hasProductInfoForPickup) {
   const dimensionsForCheck = this.extractDimensions(message);
 
 let productFromSearch: any = null;
+let similarProducts: any[] = [];
 
 if (dimensionsForCheck) {
   const productsByDimensions = await this.productsService.findByDimensions(
-    dimensionsForCheck.width,
-    dimensionsForCheck.height,
-    dimensionsForCheck.length,
-    message,
-  );
+  dimensionsForCheck.width,
+  dimensionsForCheck.height,
+  dimensionsForCheck.length,
+  message,
+);
 
-  productFromSearch = productsByDimensions[0] || null;
+similarProducts = productsByDimensions;
+
+productFromSearch = this.pickBestProduct(
+  productsByDimensions,
+  message,
+);
 } else {
   const searchQuery = this.buildSearchQuery(message);
   const productsBySearch = await this.productsService.search(searchQuery);
 
-  productFromSearch = productsBySearch[0] || null;
+similarProducts = productsBySearch;
+
+productFromSearch = this.pickBestProduct(
+  productsBySearch,
+  message,
+);
 }
 
   if (!productFromSearch) {
-    const response =
-      'Не нашёл такой товар в каталоге. Уточните, пожалуйста, размер, толщину, сорт и нужное количество — после этого проверю наличие и помогу оформить заявку.';
+  const alternativesText = similarProducts.length
+    ? '\n\nПохожие варианты:\n' +
+      similarProducts
+        .slice(0, 3)
+        .map((p, index) => {
+          const unit = this.formatUnit(p.unit);
+          const stock = this.getWarehouseStock(
+            p,
+            this.extractWarehouse(message),
+          );
 
-    return this.saveAndReturn(sessionId, response, {
-      userMessage: message,
-      sessionId,
-      response,
-      products: [],
-      lead: null,
-      source: 'product_not_found_before_phone_request',
-    });
-  }
+          return (
+            `${index + 1}. ${p.name}\n` +
+            `💰 Цена: ${p.price} ₽/${unit}\n` +
+            `📦 Остаток: ${
+              stock !== null ? stock : p.stock
+            } ${unit}`
+          );
+        })
+        .join('\n\n') +
+      '\n\nЕсли подходит один из вариантов — напишите его номер или название.'
+    : '';
+
+  const response =
+    'Точного товара с таким сортом или размером не нашёл в каталоге.' +
+    alternativesText;
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: similarProducts.slice(0, 3),
+    lead: null,
+    source: 'product_not_found_before_phone_request',
+  });
+}
 
   const response =
     'Для оформления заявки укажите, пожалуйста, номер телефона для связи. Менеджер проверит наличие и свяжется с вами для подтверждения заказа.';
@@ -1423,26 +1458,37 @@ private extractWarehouse(message: string): string | null {
   }
 
   private extractQuantity(message: string): number | null {
-    const normalizedMessage = message
-      .replace(/х/g, 'x')
-      .replace(/Х/g, 'x')
-      .replace(/\*/g, 'x');
+  const normalizedMessage = message
+    .toLowerCase()
+    .replace(/х/g, 'x')
+    .replace(/×/g, 'x')
+    .replace(/\*/g, 'x')
+    .replace(/\s+на\s+/g, 'x')
+    .replace(/[\\/]/g, 'x')
+    .replace(/[-–—]/g, 'x');
 
-    const withoutDimensions = normalizedMessage.replace(
-      /\d+\s*x\s*\d+\s*x\s*\d+/gi,
-      '',
-    );
+  const withoutDimensions = normalizedMessage
+    .replace(/\d+\s*x\s*\d+\s*x\s*\d+/gi, ' ')
+    .replace(/(?:^|\D)\d{1,3}\s+\d{2,4}\s+\d{3,4}(?:\D|$)/gi, ' ');
 
-    const match = withoutDimensions.match(
-      /(\d+)\s*(шт|штук|штуки|щит|щита|щитов|досок|доски|доска|бруса|брус|брусьев|слэб|слэба|слэбов|ступеней|ступени|ступень)/i,
-    );
+  const directMatch = withoutDimensions.match(
+  /(\d+)\s*(штук|штуки|штука|штуку|шт\.?|щит|щита|щитов|досок|доски|доска|бруса|брус|брусьев|слэб|слэба|слэбов|ступеней|ступени|ступень)(?=\s|,|\.|$)/i,
+);
 
-    if (!match) {
-      return null;
-    }
+if (directMatch) {
+  return Number(directMatch[1]);
+}
 
-    return Number(match[1]);
-  }
+const quantityWordMatch = withoutDimensions.match(
+  /(?:кол-во|количество)\s*[:=\-]?\s*(\d+)/i,
+);
+
+if (quantityWordMatch) {
+  return Number(quantityWordMatch[1]);
+}
+
+  return null;
+}
 
   private extractDimensions(
   message: string,
@@ -1760,22 +1806,101 @@ private extractLastProductContext(historyContext: string): string | null {
   return [lastProduct.line, ...details].join(' ');
 }
 private extractOrderLines(context: string): string[] {
-  const lines = context
+  const rawLines = context
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => line.replace(/^Клиент:\s*/i, '').trim());
+    .map((line) => line.replace(/^Клиент:\s*/i, '').trim())
+    .filter((line) => !/^Бот:/i.test(line));
 
-  const productLines = lines.filter((line) => {
-    const hasFullSize = !!this.extractDimensions(line);
-    const hasQuantity = /\d+\s*шт/i.test(line);
-    const hasProductWord = /щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(line);
-    const isBotLine = /^Бот:/i.test(line);
+  const result: string[] = [];
 
-    return !isBotLine && hasFullSize && hasQuantity && hasProductWord;
-  });
+  for (const rawLine of rawLines) {
+    const cleanLine = rawLine
+  .replace(/телефон\s*\+?\d[\d\s\-()]{8,}\d/gi, '')
+  .replace(/\+?\d[\d\s\-()]{8,}\d/gi, '')
+  .replace(/\bтелефон\b/gi, '')
+  .trim();
 
-  return Array.from(new Set(productLines));
+    const commonWarehouse = this.extractWarehouse(cleanLine);
+
+   const chunks = cleanLine
+  .replace(/\.\s*и\s+/gi, '|ITEM|')
+  .replace(/;\s*/g, '|ITEM|')
+  .split('|ITEM|')
+  .map((part) => part.trim())
+  .filter(Boolean);
+
+    for (const chunk of chunks) {
+      const normalizedChunk = chunk
+        .replace(/х/g, 'x')
+        .replace(/Х/g, 'x')
+        .replace(/×/g, 'x');
+
+      const hasFullSize = !!this.extractDimensions(normalizedChunk);
+      const hasQuantity = this.extractQuantity(normalizedChunk) !== null;
+      const hasProductWord =
+        /щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(normalizedChunk);
+
+      if (hasFullSize && hasProductWord) {
+        let finalLine = normalizedChunk;
+
+        if (
+          commonWarehouse &&
+          !/север|марьино|рощино|ладога/i.test(finalLine)
+        ) {
+          finalLine = `${finalLine} ${commonWarehouse}`;
+        }
+
+        result.push(finalLine);
+        continue;
+      }
+
+      const sizeMatches = [
+        ...normalizedChunk.matchAll(/\d+\s*x\s*\d+\s*x\s*\d+/gi),
+      ];
+
+      if (sizeMatches.length > 1) {
+        const commonProductWord =
+          normalizedChunk.match(
+            /щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i,
+          )?.[0] || '';
+
+        for (let i = 0; i < sizeMatches.length; i++) {
+          const current = sizeMatches[i];
+          const next = sizeMatches[i + 1];
+
+          const start = current.index ?? 0;
+          const end = next?.index ?? normalizedChunk.length;
+
+          let part = normalizedChunk.slice(start, end).trim();
+
+          if (
+            commonProductWord &&
+            !/щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(part)
+          ) {
+            part = `${commonProductWord} ${part}`;
+          }
+
+          if (
+            commonWarehouse &&
+            !/север|марьино|рощино|ладога/i.test(part)
+          ) {
+            part = `${part} ${commonWarehouse}`;
+          }
+
+          if (
+            this.extractDimensions(part) &&
+            this.extractQuantity(part) !== null
+          ) {
+            result.push(part);
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(new Set(result));
 }
 
 private pickBestProduct(products: any[], context: string): any | null {
@@ -1793,21 +1918,21 @@ private pickBestProduct(products: any[], context: string): any | null {
     return (
       products.find((p) => p.name?.toLowerCase().includes('сорт э')) ||
       products.find((p) => p.name?.toLowerCase().includes('экстра')) ||
-      products[0]
+      null
     );
   }
 
   if (text.includes('сорт а') || text.includes('сорта')) {
     return (
       products.find((p) => p.name?.toLowerCase().includes('сорт а')) ||
-      products[0]
+      null
     );
   }
 
   if (text.includes('сорт в') || text.includes('сортв')) {
     return (
       products.find((p) => p.name?.toLowerCase().includes('сорт в')) ||
-      products[0]
+      null
     );
   }
 
