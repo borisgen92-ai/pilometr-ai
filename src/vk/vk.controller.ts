@@ -112,7 +112,54 @@ const shortage =
     ? Math.max(0, lead.requestedQuantity - selectedStock)
     : null;
 
-const productText = lead.productName
+const items = Array.isArray(lead.items) ? lead.items : [];
+
+const itemsText =
+  items.length > 0
+    ? `
+📦 Товары в заявке:
+
+${items
+  .map((item, index) => {
+    const itemStock = item.warehouseStock as any;
+    const itemWarehouse = item.bestWarehouse || 'Не указан';
+
+    const itemSelectedStock =
+      itemWarehouse.toLowerCase().includes('север')
+        ? itemStock?.sever
+        : itemWarehouse.toLowerCase().includes('марьино')
+          ? itemStock?.marino
+          : itemWarehouse.toLowerCase().includes('рощино')
+            ? itemStock?.roshino
+            : itemWarehouse.toLowerCase().includes('ладога')
+              ? itemStock?.ladoga
+              : null;
+
+    const itemShortage =
+      item.requestedQuantity && itemSelectedStock !== null
+        ? Math.max(0, item.requestedQuantity - itemSelectedStock)
+        : null;
+
+    const itemTotal =
+      item.productPrice && item.requestedQuantity
+        ? item.productPrice * item.requestedQuantity
+        : null;
+
+    return `${index + 1}. ${item.productName}
+🔢 Количество: ${item.requestedQuantity || 'Не указано'} ${item.productUnit || ''}
+📍 Магазин: ${itemWarehouse}
+📦 Остаток: ${itemSelectedStock ?? 'Не указан'} ${item.productUnit || ''}
+${itemShortage && itemShortage > 0 ? `⚠️ Не хватает: ${itemShortage} ${item.productUnit || ''}` : '✅ В наличии достаточно'}
+💰 Цена: ${item.productPrice || 'Не указано'} ₽/${item.productUnit || ''}
+💵 Сумма: ${itemTotal ?? 'Не указано'} ₽`;
+  })
+  .join('\n\n')}
+
+💵 Итого:
+${lead.budget || 'Не указано'} ₽`
+    : '';
+
+const productText = itemsText || (lead.productName
   ? `
 📦 Товар:
 ${lead.productName}
@@ -137,7 +184,7 @@ ${lead.productPrice || 'Не указано'} ₽/${lead.productUnit || ''}
 
 💵 Сумма:
 ${lead.budget || 'Не указано'} ₽`
-  : '';
+  : '');
 
           const interestText = lead.productInterest || 'Не указан';
 
@@ -272,7 +319,7 @@ ${text}`,
   private getStatusText(status: LeadStatus) {
     if (status === LeadStatus.NEW) return 'Новая';
     if (status === LeadStatus.IN_PROGRESS) return 'В работе';
-    if (status === LeadStatus.NEGOTIATION) return 'Переговоры';
+    if (status === LeadStatus.NEGOTIATION) return 'Готов к выдаче';
     if (status === LeadStatus.WON) return 'Продано';
     if (status === LeadStatus.LOST) return 'Отказ';
 

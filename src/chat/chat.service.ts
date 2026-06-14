@@ -158,6 +158,97 @@ const hasOrderInfoWithPhone =
     this.extractQuantity(earlyMessageWithoutPhone)
   );
 
+  const orderLinesWithPhone = this.extractOrderLines(earlyMessageWithoutPhone);
+
+if (earlyPhone && orderLinesWithPhone.length > 0) {
+  const commonWarehouse = this.extractWarehouse(earlyMessageWithoutPhone);
+
+  const orderItems = await Promise.all(
+    orderLinesWithPhone.map(async (line) => {
+      const lineDimensions = this.extractDimensions(line);
+      const lineQuantity = this.extractQuantity(line);
+      const lineWarehouse =
+        this.extractWarehouse(line) || commonWarehouse;
+
+      if (!lineDimensions) {
+        return null;
+      }
+
+      const foundProducts = await this.productsService.findByDimensions(
+        lineDimensions.width,
+        lineDimensions.height,
+        lineDimensions.length,
+        line,
+      );
+
+      const lineProduct = this.pickBestProduct(foundProducts, line);
+
+      if (!lineProduct) {
+        return null;
+      }
+
+      return {
+        productId: lineProduct.id,
+        productName: lineProduct.name,
+        productPrice: lineProduct.price,
+        productUnit: lineProduct.unit,
+        requestedQuantity: lineQuantity || undefined,
+        warehouseStock: {
+          volhov: lineProduct.volhovStock ?? 0,
+          sever: lineProduct.skotnoeStock ?? 0,
+          marino: lineProduct.lomonosovStock ?? 0,
+          roshino: lineProduct.roshinoStock ?? 0,
+          ladoga: lineProduct.ladogaStock ?? 0,
+        },
+        bestWarehouse: lineWarehouse || undefined,
+      };
+    }),
+  ).then((items) =>
+    items.filter(
+      (item): item is NonNullable<typeof item> => item !== null,
+    ),
+  );
+
+  const totalBudget = orderItems.reduce(
+    (sum, item) =>
+      sum + (item.productPrice || 0) * (item.requestedQuantity || 0),
+    0,
+  );
+
+  const lead = await this.leadsService.create({
+    phone: earlyPhone,
+    clientName: this.extractClientName(message) || undefined,
+    source: meta?.vkPeerId ? 'vk' : 'chat',
+    vkPeerId: meta?.vkPeerId,
+    aiSummary:
+      `[Категория: Заказ]\n` +
+      `Интерес: ${earlyMessageWithoutPhone}\n\n` +
+      `История диалога:\n${historyContext}`,
+    productInterest: earlyMessageWithoutPhone,
+    items: orderItems,
+    productId: orderItems[0]?.productId,
+    productName: orderItems[0]?.productName,
+    productPrice: orderItems[0]?.productPrice,
+    productUnit: orderItems[0]?.productUnit,
+    requestedQuantity: orderItems[0]?.requestedQuantity,
+    warehouseStock: orderItems[0]?.warehouseStock,
+    bestWarehouse: orderItems[0]?.bestWarehouse,
+    budget: totalBudget || undefined,
+  });
+
+  const response =
+    `Спасибо, заявка создана. Передал менеджеру ${orderItems.length} позиции.`;
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead,
+    source: 'multi_item_order_created_with_phone',
+  });
+}
+
 if (
   earlyPhone &&
   message.replace(/\D/g, '').length >= 10 &&
@@ -243,6 +334,8 @@ const orderSummary =
   this.extractInterestFromHistory(historyContext) ||
   'Клиент оставил телефон после подбора товара';
 
+  const orderLines = this.extractOrderLines(historyContext);
+  
   console.log('FINAL ORDER SUMMARY:', orderSummary);
 
   const orderQuantity = this.extractQuantity(orderSummary);
@@ -281,6 +374,55 @@ const managerSummary =
   `Интерес: ${orderSummary}\n\n` +
   `История диалога:\n${historyContext}`;
 
+  const orderItems =
+  orderLines.length > 1
+    ? await Promise.all(
+        orderLines.map(async (line) => {
+          const lineDimensions = this.extractDimensions(line);
+          const lineQuantity = this.extractQuantity(line);
+          const lineWarehouse =
+            this.extractWarehouse(line) || orderWarehouse;
+
+          if (!lineDimensions) {
+            return null;
+          }
+
+          const foundProducts = await this.productsService.findByDimensions(
+            lineDimensions.width,
+            lineDimensions.height,
+            lineDimensions.length,
+            line,
+          );
+
+          const lineProduct = this.pickBestProduct(foundProducts, line);
+
+          if (!lineProduct) {
+            return null;
+          }
+
+          return {
+            productId: lineProduct.id,
+            productName: lineProduct.name,
+            productPrice: lineProduct.price,
+            productUnit: lineProduct.unit,
+            requestedQuantity: lineQuantity || undefined,
+            warehouseStock: {
+              volhov: lineProduct.volhovStock ?? 0,
+              sever: lineProduct.skotnoeStock ?? 0,
+              marino: lineProduct.lomonosovStock ?? 0,
+              roshino: lineProduct.roshinoStock ?? 0,
+              ladoga: lineProduct.ladogaStock ?? 0,
+            },
+            bestWarehouse: lineWarehouse || undefined,
+          };
+        }),
+      ).then((items) =>
+  items.filter(
+    (item): item is NonNullable<typeof item> => item !== null,
+  ),
+)
+    : [];
+
 const lead = await this.leadsService.create({
   phone: earlyPhone,
   clientName: this.extractClientName(message) || undefined,
@@ -289,25 +431,28 @@ const lead = await this.leadsService.create({
   aiSummary: managerSummary,
   productInterest: orderSummary,
 
-  items: orderProduct
-  ? [
-      {
-        productId: orderProduct.id,
-        productName: orderProduct.name,
-        productPrice: orderProduct.price,
-        productUnit: orderProduct.unit,
-        requestedQuantity: orderQuantity || undefined,
-        warehouseStock: {
-          volhov: orderProduct.volhovStock ?? 0,
-          sever: orderProduct.skotnoeStock ?? 0,
-          marino: orderProduct.lomonosovStock ?? 0,
-          roshino: orderProduct.roshinoStock ?? 0,
-          ladoga: orderProduct.ladogaStock ?? 0,
-        },
-        bestWarehouse: orderWarehouse || undefined,
-      },
-    ]
-  : undefined,
+  items:
+  orderItems.length > 0
+    ? orderItems
+    : orderProduct
+      ? [
+          {
+            productId: orderProduct.id,
+            productName: orderProduct.name,
+            productPrice: orderProduct.price,
+            productUnit: orderProduct.unit,
+            requestedQuantity: orderQuantity || undefined,
+            warehouseStock: {
+              volhov: orderProduct.volhovStock ?? 0,
+              sever: orderProduct.skotnoeStock ?? 0,
+              marino: orderProduct.lomonosovStock ?? 0,
+              roshino: orderProduct.roshinoStock ?? 0,
+              ladoga: orderProduct.ladogaStock ?? 0,
+            },
+            bestWarehouse: orderWarehouse || undefined,
+          },
+        ]
+      : undefined,
 
   productId: orderProduct?.id,
   productName: orderProduct?.name,
@@ -1598,6 +1743,24 @@ private extractLastProductContext(historyContext: string): string | null {
     );
 
   return [lastProduct.line, ...details].join(' ');
+}
+private extractOrderLines(context: string): string[] {
+  const lines = context
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^Клиент:\s*/i, '').trim());
+
+  const productLines = lines.filter((line) => {
+    const hasFullSize = /\d+\s*[xх]\s*\d+\s*[xх]\s*\d+/i.test(line);
+    const hasQuantity = /\d+\s*шт/i.test(line);
+    const hasProductWord = /щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(line);
+    const isBotLine = /^Бот:/i.test(line);
+
+    return !isBotLine && hasFullSize && hasQuantity && hasProductWord;
+  });
+
+  return Array.from(new Set(productLines));
 }
 
 private pickBestProduct(products: any[], context: string): any | null {
