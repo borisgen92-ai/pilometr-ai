@@ -228,10 +228,9 @@ if (earlyPhone && orderLinesWithPhone.length > 0) {
     source: meta?.vkPeerId ? 'vk' : 'chat',
     vkPeerId: meta?.vkPeerId,
     aiSummary:
-      `[Категория: Заказ]\n` +
-      `Интерес: ${earlyMessageWithoutPhone}\n\n` +
-      `История диалога:\n${historyContext}`,
-    productInterest: earlyMessageWithoutPhone,
+  `[Категория: Заказ]\n` +
+  `Интерес: ${earlyMessageWithoutPhone}\n\n` +
+  `История диалога:\nКлиент: ${earlyMessageWithoutPhone}`,
     items: orderItems,
     productId: orderItems[0]?.productId,
     productName: orderItems[0]?.productName,
