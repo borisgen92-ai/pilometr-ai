@@ -22,10 +22,11 @@ export class LeadsService {
   const prefix = source?.toUpperCase() || 'CRM';
 
   const now = new Date();
-  const datePart = now
-    .toISOString()
-    .slice(0, 10)
-    .replace(/-/g, '');
+  const day = String(now.getDate()).padStart(2, '0');
+const month = String(now.getMonth() + 1).padStart(2, '0');
+const year = now.getFullYear();
+
+const datePart = `${day}-${month}-${year}`;
 
   for (let attempt = 1; attempt <= 9999; attempt++) {
     const sequence = String(attempt).padStart(4, '0');

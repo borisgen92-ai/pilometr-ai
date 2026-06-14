@@ -89,7 +89,7 @@ if (isConfirmationMessage && phoneFromHistoryForConfirmation) {
         orderSummary,
       );
 
-      orderProduct = foundProducts[0] || null;
+      orderProduct = this.pickBestProduct(foundProducts, orderSummary);
     }
 
     const lead = await this.leadsService.create({
@@ -187,7 +187,10 @@ if (orderDimensionsBeforePhone) {
     orderSummaryBeforePhone,
   );
 
-  orderProductBeforePhone = foundProducts[0] || null;
+  orderProductBeforePhone = this.pickBestProduct(
+  foundProducts,
+  orderSummaryBeforePhone,
+);
 } else {
   const foundProducts = await this.productsService.search(
     orderSearchQueryBeforePhone,
@@ -1564,29 +1567,73 @@ if (text.includes('налич')) {
 }
 
 private extractLastProductContext(historyContext: string): string | null {
-  const lines = historyContext
+  const clientLines = historyContext
     .split('\n')
     .map((line) => line.trim())
+    .filter((line) => line.startsWith('Клиент:'))
+    .map((line) => line.replace(/^Клиент:\s*/i, '').trim())
     .filter(Boolean);
 
-  const productLines = lines.filter((line) =>
-    /щит|брус|доск|слэб|ступ|тетив|поруч|баляс|\d+\s*[xх]\s*\d+\s*[xх]\s*\d+/i.test(
+  const productLineIndexes = clientLines
+    .map((line, index) => ({
       line,
-    ),
-  );
+      index,
+      hasProduct:
+        /щит|брус|доск|слэб|ступ|тетив|поруч|баляс|\d+\s*[xх]\s*\d+\s*[xх]\s*\d+/i.test(
+          line,
+        ),
+    }))
+    .filter((item) => item.hasProduct);
 
-  if (productLines.length === 0) {
+  if (productLineIndexes.length === 0) {
     return null;
   }
 
-  const lastProductLine = productLines[productLines.length - 1];
+  const lastProduct = productLineIndexes[productLineIndexes.length - 1];
 
-  const afterLastProduct = lines.slice(lines.lastIndexOf(lastProductLine) + 1);
-  const details = afterLastProduct.filter((line) =>
-    /\d+\s*шт|север|марьино|рощино|ладога/i.test(line),
-  );
+  const details = clientLines
+    .slice(lastProduct.index + 1)
+    .filter((line) =>
+      /\d+\s*шт|север|марьино|рощино|ладога/i.test(line),
+    );
 
-  return [lastProductLine, ...details].join(' ');
+  return [lastProduct.line, ...details].join(' ');
+}
+
+private pickBestProduct(products: any[], context: string): any | null {
+  if (!products || products.length === 0) {
+    return null;
+  }
+
+  const text = context.toLowerCase();
+
+  if (
+    text.includes('сорт э') ||
+    text.includes('сортэ') ||
+    text.includes('экстра')
+  ) {
+    return (
+      products.find((p) => p.name?.toLowerCase().includes('сорт э')) ||
+      products.find((p) => p.name?.toLowerCase().includes('экстра')) ||
+      products[0]
+    );
+  }
+
+  if (text.includes('сорт а') || text.includes('сорта')) {
+    return (
+      products.find((p) => p.name?.toLowerCase().includes('сорт а')) ||
+      products[0]
+    );
+  }
+
+  if (text.includes('сорт в') || text.includes('сортв')) {
+    return (
+      products.find((p) => p.name?.toLowerCase().includes('сорт в')) ||
+      products[0]
+    );
+  }
+
+  return products[0];
 }
 
   private needsProductClarification(message: string): boolean {

@@ -19,8 +19,7 @@ export class LeadsService {
     const prefix = source?.toUpperCase() || 'CRM';
 
     const now = new Date();
-    const datePart = now
-      .toISOString()
+const datePart = `${day}-${month}-${year}`;      .toISOString()
       .slice(0, 10)
       .replace(/-/g, '');
 
