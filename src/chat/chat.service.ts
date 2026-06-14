@@ -146,9 +146,13 @@ if (isConfirmationMessage && phoneFromHistoryForConfirmation) {
   }
 }
 
-const earlyMessageWithoutPhone = message
-  .replace(/(\+?\d[\d\s\-()]{8,}\d)/g, '')
-  .trim();
+const earlyPhoneRawMatch = message.match(
+  /(?:\+7|7|8)\s*\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}/,
+);
+
+const earlyMessageWithoutPhone = earlyPhoneRawMatch
+  ? message.replace(earlyPhoneRawMatch[0], '').trim()
+  : message.trim();
 
 const hasOrderInfoWithPhone =
   earlyMessageWithoutPhone.length > 0 &&
@@ -159,6 +163,9 @@ const hasOrderInfoWithPhone =
   );
 
   const orderLinesWithPhone = this.extractOrderLines(earlyMessageWithoutPhone);
+
+  console.log('ORDER LINES WITH PHONE:', orderLinesWithPhone);
+console.log('EARLY MESSAGE WITHOUT PHONE:', earlyMessageWithoutPhone);
 
 if (earlyPhone && orderLinesWithPhone.length > 0) {
   const commonWarehouse = this.extractWarehouse(earlyMessageWithoutPhone);
@@ -1438,50 +1445,58 @@ private extractWarehouse(message: string): string | null {
   }
 
   private extractDimensions(
-    message: string,
-  ): { width: number; height: number; length: number } | null {
-    const normalizedMessage = message
-      .replace(/х/g, 'x')
-      .replace(/Х/g, 'x')
-      .replace(/\*/g, 'x');
+  message: string,
+): { width: number; height: number; length: number } | null {
+  const normalizedMessage = message
+    .toLowerCase()
+    .replace(/х/g, 'x')
+    .replace(/×/g, 'x')
+    .replace(/\*/g, 'x')
+    .replace(/\s+на\s+/g, 'x')
+    .replace(/[\\/]/g, 'x')
+    .replace(/[-–—]/g, 'x');
 
-    const match = normalizedMessage.match(
-      /(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/i,
-    );
+  const strictMatch = normalizedMessage.match(
+    /(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/i,
+  );
 
-    if (!match) {
-      return null;
-    }
+  const freeMatch = normalizedMessage.match(
+    /(?:^|\D)(\d{1,3})\s+(\d{2,4})\s+(\d{3,4})(?:\D|$)/i,
+  );
 
-    return {
-      height: Number(match[1]),
-      width: Number(match[2]),
-      length: Number(match[3]),
-    };
-  }
-
-  private extractPhone(message: string): string | null {
-  const match = message.match(/(\+?\d[\d\s\-()]{8,}\d)/);
+  const match = strictMatch || freeMatch;
 
   if (!match) {
     return null;
   }
 
-  const digits = match[1].replace(/\D/g, '');
+  return {
+    height: Number(match[1]),
+    width: Number(match[2]),
+    length: Number(match[3]),
+  };
+}
 
-  if (digits.length === 11 && digits.startsWith('8')) {
-    return `7${digits.slice(1)}`;
+private extractPhone(message: string): string | null {
+  const matches = message.matchAll(/(\+?\d[\d\s\-()]{8,}\d)/g);
+
+  for (const match of matches) {
+    const digits = match[1].replace(/\D/g, '');
+
+    if (digits.length === 11 && digits.startsWith('8')) {
+      return `7${digits.slice(1)}`;
+    }
+
+    if (digits.length === 11 && digits.startsWith('7')) {
+      return digits;
+    }
+
+    if (digits.length === 10) {
+      return `7${digits}`;
+    }
   }
 
-  if (digits.length === 11 && digits.startsWith('7')) {
-    return digits;
-  }
-
-  if (digits.length === 10) {
-    return `7${digits}`;
-  }
-
-  return digits;
+  return null;
 }
 
 private extractClientName(message: string): string | null { 
@@ -1752,7 +1767,7 @@ private extractOrderLines(context: string): string[] {
     .map((line) => line.replace(/^Клиент:\s*/i, '').trim());
 
   const productLines = lines.filter((line) => {
-    const hasFullSize = /\d+\s*[xх]\s*\d+\s*[xх]\s*\d+/i.test(line);
+    const hasFullSize = !!this.extractDimensions(line);
     const hasQuantity = /\d+\s*шт/i.test(line);
     const hasProductWord = /щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(line);
     const isBotLine = /^Бот:/i.test(line);
