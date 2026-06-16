@@ -10,6 +10,8 @@ import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class ChatService {
+    private pendingOrders = new Map<string, any>();
+
   constructor(
     private readonly productsService: ProductsService,
     private readonly calculatorService: CalculatorService,
@@ -26,6 +28,42 @@ export class ChatService {
   },
 ) {
     const cleanMessage = message.trim().toLowerCase();
+
+    const pendingOrder = this.pendingOrders.get(sessionId);
+
+if (
+  !pendingOrder &&
+  /подтверждаю|подтвердить|верно|всё верно|все верно/i.test(cleanMessage)
+) {
+  return {
+    response:
+      'Заявка уже была подтверждена и передана менеджеру. Если хотите оформить новый заказ — напишите новый товар, количество и магазин.',
+    lead: null,
+  };
+}
+
+if (
+  pendingOrder &&
+  /подтверждаю|подтвердить|верно|всё верно|все верно|да/i.test(
+    cleanMessage,
+  )
+) {
+  const lead = await this.leadsService.create(pendingOrder);
+
+  this.pendingOrders.delete(sessionId);
+
+const response =
+  'Спасибо, заказ подтверждён. Заявка создана и передана менеджеру.';
+
+return this.saveAndReturn(sessionId, response, {
+  userMessage: message,
+  sessionId,
+  response,
+  products: [],
+  lead,
+  source: 'order_confirmed_created',
+});
+}
 
     if (cleanMessage.includes('мульч')) {
   return {
@@ -222,37 +260,53 @@ if (earlyPhone && orderLinesWithPhone.length > 0) {
     0,
   );
 
-  const lead = await this.leadsService.create({
-    phone: earlyPhone,
-    clientName: this.extractClientName(message) || undefined,
-    source: meta?.vkPeerId ? 'vk' : 'chat',
-    vkPeerId: meta?.vkPeerId,
-    aiSummary:
-  `[Категория: Заказ]\n` +
-  `Интерес: ${earlyMessageWithoutPhone}\n\n` +
-  `История диалога:\nКлиент: ${earlyMessageWithoutPhone}`,
-    items: orderItems,
-    productId: orderItems[0]?.productId,
-    productName: orderItems[0]?.productName,
-    productPrice: orderItems[0]?.productPrice,
-    productUnit: orderItems[0]?.productUnit,
-    requestedQuantity: orderItems[0]?.requestedQuantity,
-    warehouseStock: orderItems[0]?.warehouseStock,
-    bestWarehouse: orderItems[0]?.bestWarehouse,
-    budget: totalBudget || undefined,
-  });
+  const leadData = {
+  phone: earlyPhone,
+  clientName: this.extractClientName(message) || undefined,
+  source: meta?.vkPeerId ? 'vk' : 'chat',
+  vkPeerId: meta?.vkPeerId,
+  aiSummary:
+    `[Категория: Заказ]\n` +
+    `Интерес: ${earlyMessageWithoutPhone}\n\n` +
+    `История диалога:\nКлиент: ${earlyMessageWithoutPhone}`,
+  items: orderItems,
+  productId: orderItems[0]?.productId,
+  productName: orderItems[0]?.productName,
+  productPrice: orderItems[0]?.productPrice,
+  productUnit: orderItems[0]?.productUnit,
+  requestedQuantity: orderItems[0]?.requestedQuantity,
+  warehouseStock: orderItems[0]?.warehouseStock,
+  bestWarehouse: orderItems[0]?.bestWarehouse,
+  budget: totalBudget || undefined,
+};
 
-  const response =
-    `Спасибо, заявка создана. Передал менеджеру ${orderItems.length} позиции.`;
+this.pendingOrders.set(sessionId, leadData);
 
-  return this.saveAndReturn(sessionId, response, {
-    userMessage: message,
-    sessionId,
-    response,
-    products: [],
-    lead,
-    source: 'multi_item_order_created_with_phone',
-  });
+const productsText = orderItems
+  .map(
+    (item, index) =>
+      `${index + 1}. ${item.productName}\n` +
+      `Количество: ${item.requestedQuantity || 0} шт\n` +
+      `Сумма: ${(
+        (item.productPrice || 0) *
+        (item.requestedQuantity || 0)
+      ).toLocaleString('ru-RU')} ₽`,
+  )
+  .join('\n\n');
+
+const response =
+  `Проверьте заказ:\n\n${productsText}\n\n` +
+  `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
+  `Если всё верно — напишите "Подтверждаю".`;
+
+return this.saveAndReturn(sessionId, response, {
+  userMessage: message,
+  sessionId,
+  response,
+  products: [],
+  lead: null,
+  source: 'waiting_confirmation',
+});
 }
 
 if (
