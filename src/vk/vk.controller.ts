@@ -80,9 +80,10 @@ const aiAnswer = await this.chatService.processMessage(
     
 
       await this.vkService.sendMessage(
-        peerId,
-        aiAnswer.response || 'Спасибо за сообщение! Сейчас уточню информацию.',
-      );
+  peerId,
+  aiAnswer.response || 'Спасибо за сообщение! Сейчас уточню информацию.',
+  aiAnswer.keyboard,
+);
 
             if (aiAnswer.lead && !(aiAnswer.lead as any).isDuplicate) {
         const lead = aiAnswer.lead as any;
@@ -201,8 +202,7 @@ const fallbackLeadText =
 ${productText || fallbackLeadText}
 
 Сообщение клиента:
-${text}
-
+${lead.productInterest || text}
 Источник: VK
 ID диалога: ${sessionId}`,
           lead.id,
@@ -215,7 +215,7 @@ ID диалога: ${sessionId}`,
 ${productText || fallbackLeadText}
 
 Сообщение клиента:
-${text}`,
+${lead.productInterest || text}`,
         );
       }
 

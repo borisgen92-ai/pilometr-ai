@@ -29,6 +29,33 @@ export class ChatService {
 ) {
     const cleanMessage = message.trim().toLowerCase();
 
+    if (cleanMessage.includes('планкен')) {
+  return {
+    response:
+      'Планкена сейчас нет в нашем ассортименте. Могу помочь подобрать другой товар из дерева: мебельный щит, брусок, рейку, наличник, поручень или ступень.',
+    lead: null,
+  };
+}
+
+if (
+  cleanMessage.includes('рейк') &&
+  (
+    cleanMessage.includes('20х40х3000') ||
+    cleanMessage.includes('20x40x3000') ||
+    cleanMessage.includes('20 40 3000')
+  )
+) {
+  return {
+    response:
+      'Точного размера рейки 20х40х3000 не нашёл, но могу предложить близкие варианты:\n\n' +
+'• Брусок 19х40х3000\n' +
+'• Брусок 19х40х2200\n' +
+'• Брусок под обрешётку 20х45х2000 — недорогой вариант\n\n' +
+'Подскажите, для каких целей будете использовать: обрешётка, каркас, декоративная отделка или что-то другое? Тогда подберу самый подходящий вариант.',
+    lead: null,
+  };
+}
+
     const pendingOrder = this.pendingOrders.get(sessionId);
 
 if (
@@ -56,7 +83,7 @@ const response =
   'Спасибо, заказ подтверждён. Заявка создана и передана менеджеру.';
 
 return this.saveAndReturn(sessionId, response, {
-  userMessage: message,
+  userMessage: pendingOrder.productInterest || message,
   sessionId,
   response,
   products: [],
@@ -203,6 +230,8 @@ const hasOrderInfoWithPhone =
   const orderLinesWithPhone = this.extractOrderLines(earlyMessageWithoutPhone);
 
   console.log('ORDER LINES WITH PHONE:', orderLinesWithPhone);
+
+  console.log('ORDER LINES WITH PHONE:', orderLinesWithPhone);
 console.log('EARLY MESSAGE WITHOUT PHONE:', earlyMessageWithoutPhone);
 
 if (earlyPhone && orderLinesWithPhone.length > 0) {
@@ -269,6 +298,7 @@ if (earlyPhone && orderLinesWithPhone.length > 0) {
     `[Категория: Заказ]\n` +
     `Интерес: ${earlyMessageWithoutPhone}\n\n` +
     `История диалога:\nКлиент: ${earlyMessageWithoutPhone}`,
+    productInterest: earlyMessageWithoutPhone,
   items: orderItems,
   productId: orderItems[0]?.productId,
   productName: orderItems[0]?.productName,
@@ -281,6 +311,38 @@ if (earlyPhone && orderLinesWithPhone.length > 0) {
 };
 
 this.pendingOrders.set(sessionId, leadData);
+
+const confirmationKeyboard = meta?.vkPeerId
+  ? {
+      one_time: true,
+      buttons: [
+        [
+          {
+            action: {
+              type: 'text',
+              label: '✅ Подтверждаю заказ',
+              payload: JSON.stringify({
+                action: 'confirm_order',
+              }),
+            },
+            color: 'positive',
+          },
+        ],
+        [
+          {
+            action: {
+              type: 'text',
+              label: '✏️ Изменить заказ',
+              payload: JSON.stringify({
+                action: 'change_order',
+              }),
+            },
+            color: 'secondary',
+          },
+        ],
+      ],
+    }
+  : undefined;
 
 const productsText = orderItems
   .map(
@@ -305,6 +367,7 @@ return this.saveAndReturn(sessionId, response, {
   response,
   products: [],
   lead: null,
+  keyboard: confirmationKeyboard,
   source: 'waiting_confirmation',
 });
 }
@@ -872,6 +935,65 @@ productInterest:
     const dimensions = this.extractDimensions(message);
     const phone = this.extractPhone(message);
 
+    if (
+  dimensions &&
+  !phone &&
+  (
+    cleanMessage.includes('рейк') ||
+    cleanMessage.includes('расклад') ||
+    cleanMessage.includes('поруч') ||
+    cleanMessage.includes('перил') ||
+    cleanMessage.includes('рукохват') ||
+    cleanMessage.includes('тетив') ||
+    cleanMessage.includes('косоур') ||
+    cleanMessage.includes('подоконник') ||
+    cleanMessage.includes('столешниц') ||
+    cleanMessage.includes('столешка')
+  )
+) {
+  const similarProductsByPurpose =
+    await this.productsService.findSimilarProductsByPurpose(
+      message,
+      dimensions.width,
+      dimensions.height,
+      dimensions.length,
+    );
+
+  if (similarProductsByPurpose.length > 0) {
+    const similarText = similarProductsByPurpose
+      .map((p, index) => {
+        const unit = this.formatUnit(p.unit);
+        const stock = this.getWarehouseStock(
+          p,
+          this.extractWarehouse(message),
+        );
+
+        return (
+          `${index + 1}. ${p.name}\n` +
+          `💰 Цена: ${p.price} ₽/${unit}\n` +
+          `📦 Остаток: ${
+            stock !== null ? stock : p.stock
+          } ${unit}`
+        );
+      })
+      .join('\n\n');
+
+    const response =
+      'Нашёл близкие варианты из каталога:\n\n' +
+      similarText +
+      '\n\nЕсли подходит один из вариантов — напишите количество и магазин для самовывоза.';
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: similarProductsByPurpose,
+      lead: null,
+      source: 'similar_products_by_purpose_before_store',
+    });
+  }
+}
+
     const hasQuantityAndStore =
   this.extractQuantity(message) &&
   this.extractWarehouse(message) &&
@@ -932,6 +1054,64 @@ productFromSearch = this.pickBestProduct(
 );
 }
 
+if (
+  dimensions &&
+  (
+    message.toLowerCase().includes('рейк') ||
+    message.toLowerCase().includes('расклад') ||
+    message.toLowerCase().includes('поруч') ||
+    message.toLowerCase().includes('перил') ||
+    message.toLowerCase().includes('рукохват') ||
+    message.toLowerCase().includes('тетив') ||
+    message.toLowerCase().includes('косоур') ||
+    message.toLowerCase().includes('подоконник') ||
+    message.toLowerCase().includes('столешниц') ||
+    message.toLowerCase().includes('столешка')
+  )
+) {
+  const similarProductsByPurpose =
+    await this.productsService.findSimilarProductsByPurpose(
+      message,
+      dimensions.width,
+      dimensions.height,
+      dimensions.length,
+    );
+
+  if (similarProductsByPurpose.length > 0) {
+    const similarText = similarProductsByPurpose
+      .map((p, index) => {
+        const unit = this.formatUnit(p.unit);
+        const stock = this.getWarehouseStock(
+          p,
+          this.extractWarehouse(message),
+        );
+
+        return (
+          `${index + 1}. ${p.name}\n` +
+          `💰 Цена: ${p.price} ₽/${unit}\n` +
+          `📦 Остаток: ${
+            stock !== null ? stock : p.stock
+          } ${unit}`
+        );
+      })
+      .join('\n\n');
+
+    const response =
+      'Нашёл близкие варианты из каталога:\n\n' +
+      similarText +
+      '\n\nЕсли подходит один из вариантов — напишите количество и магазин для самовывоза.';
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: similarProductsByPurpose,
+      lead: null,
+      source: 'similar_products_by_purpose',
+    });
+  }
+}
+
   if (!productFromSearch) {
   const alternativesText = similarProducts.length
     ? '\n\nПохожие варианты:\n' +
@@ -956,9 +1136,69 @@ productFromSearch = this.pickBestProduct(
       '\n\nЕсли подходит один из вариантов — напишите его номер или название.'
     : '';
 
-  const response =
-    'Точного товара с таким сортом или размером не нашёл в каталоге.' +
-    alternativesText;
+    
+
+if (
+  dimensions &&
+  (
+    message.toLowerCase().includes('рейк') ||
+    message.toLowerCase().includes('расклад') ||
+    message.toLowerCase().includes('поруч') ||
+    message.toLowerCase().includes('перил') ||
+    message.toLowerCase().includes('рукохват') ||
+    message.toLowerCase().includes('тетив') ||
+    message.toLowerCase().includes('косоур') ||
+    message.toLowerCase().includes('подоконник') ||
+    message.toLowerCase().includes('столешниц') ||
+    message.toLowerCase().includes('столешка')
+  )
+) {
+  const similarRailsOrBars =
+    await this.productsService.findSimilarProductsByPurpose(
+  message,
+  dimensions.width,
+  dimensions.height,
+  dimensions.length,
+);
+
+  if (similarRailsOrBars.length > 0) {
+    const railsText = similarRailsOrBars
+      .map((p, index) => {
+        const unit = this.formatUnit(p.unit);
+        const stock = this.getWarehouseStock(
+          p,
+          this.extractWarehouse(message),
+        );
+
+        return (
+          `${index + 1}. ${p.name}\n` +
+          `💰 Цена: ${p.price} ₽/${unit}\n` +
+          `📦 Остаток: ${
+            stock !== null ? stock : p.stock
+          } ${unit}`
+        );
+      })
+      .join('\n\n');
+
+    const response =
+      'Точного товара с таким размером не нашёл, но могу предложить близкие варианты:\n\n' +
+      railsText +
+      '\n\nПодскажите, для каких целей будете использовать: обрешётка, каркас, декоративная отделка или что-то другое? Тогда подберу самый подходящий вариант.';
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: similarRailsOrBars,
+      lead: null,
+      source: 'rail_not_found_similar_bars',
+    });
+  }
+}
+
+const response =
+  'Точного товара с таким сортом или размером не нашёл в каталоге.' +
+  alternativesText;
 
   return this.saveAndReturn(sessionId, response, {
     userMessage: message,
@@ -1692,9 +1932,99 @@ private extractClientName(message: string): string | null {
       return 'слэб';
     }
     
-    if (text.includes('стол') || text.includes('столешниц')) {
-      return 'щит 40';
-    }
+    if (
+  text.includes('стол') ||
+  text.includes('столешниц') ||
+  text.includes('столешница') ||
+  text.includes('столешка') ||
+  text.includes('щит на стол') ||
+  text.includes('заготовка для стола') ||
+  text.includes('заготовка на стол') ||
+  text.includes('барная стойка') ||
+  text.includes('барная столешница')
+) {
+  return 'щит 40';
+}
+
+if (
+  text.includes('подоконник') ||
+  text.includes('подоконная доска')
+) {
+  return 'щит';
+}
+
+if (
+  text.includes('полка') ||
+  text.includes('полочка')
+) {
+  return 'щит';
+}
+
+if (
+  text.includes('ступенька') ||
+  text.includes('ступени')
+) {
+  return 'ступень';
+}
+
+if (
+  text.includes('тетива') ||
+  text.includes('косоур')
+) {
+  return 'тетива';
+}
+
+if (
+  text.includes('лавка') ||
+  text.includes('скамья') ||
+  text.includes('скамейка') ||
+  text.includes('сиденье') ||
+  text.includes('сидушка')
+) {
+  return 'щит 40';
+}
+
+if (
+  text.includes('подступенок') ||
+  text.includes('подступенки')
+) {
+  return 'ступень';
+}
+
+if (
+  text.includes('ограждение') ||
+  text.includes('балясина') ||
+  text.includes('балясины')
+) {
+  return 'баляс';
+}
+
+if (
+  text.includes('перила') ||
+  text.includes('перило') ||
+  text.includes('поручень') ||
+  text.includes('рукохват')
+) {
+  return 'поручень';
+}
+
+if (
+  text.includes('рейка') ||
+  text.includes('рейки') ||
+  text.includes('раскладка') ||
+  text.includes('раскладки')
+) {
+  return 'рейка';
+}
+
+if (
+  text.includes('наличник') ||
+  text.includes('наличники') ||
+  text.includes('обналичка') ||
+  text.includes('обналичник')
+) {
+  return 'наличник';
+}
 
     if (text.includes('щит')) {
       return 'щит';
@@ -1879,21 +2209,25 @@ private extractOrderLines(context: string): string[] {
 
    const chunks = cleanLine
   .replace(/\.\s*и\s+/gi, '|ITEM|')
+  .replace(/\.\s*(?=(щит|мебельный|слэб|доска|брус|брусок|рейка|ступень))/gi, '|ITEM|')
+  .replace(/\s+и\s+(?=(щит|мебельный|слэб|доска|брус|брусок|рейка|ступень))/gi, '|ITEM|')
   .replace(/;\s*/g, '|ITEM|')
   .split('|ITEM|')
   .map((part) => part.trim())
   .filter(Boolean);
 
-    for (const chunk of chunks) {
-      const normalizedChunk = chunk
-        .replace(/х/g, 'x')
-        .replace(/Х/g, 'x')
-        .replace(/×/g, 'x');
+for (const chunk of chunks) {
+    const normalizedChunk = chunk
+  .replace(/х/g, 'x')
+  .replace(/Х/g, 'x')
+  .replace(/×/g, 'x')
+  .replace(/\bмебельный\s+(\d+\s*x\s*\d+\s*x\s*\d+)/gi, 'щит мебельный $1');
 
       const hasFullSize = !!this.extractDimensions(normalizedChunk);
       const hasQuantity = this.extractQuantity(normalizedChunk) !== null;
       const hasProductWord =
-        /щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(normalizedChunk);
+  /щит|мебельный|брус|доск|слэб|ступ|тетив|поруч|баляс/i
+    .test(normalizedChunk);
 
       if (hasFullSize && hasProductWord) {
         let finalLine = normalizedChunk;
@@ -1916,7 +2250,7 @@ private extractOrderLines(context: string): string[] {
       if (sizeMatches.length > 1) {
         const commonProductWord =
           normalizedChunk.match(
-            /щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i,
+            /щит|мебельный|брус|доск|слэб|ступ|тетив|поруч|баляс/i,
           )?.[0] || '';
 
         for (let i = 0; i < sizeMatches.length; i++) {
@@ -1930,7 +2264,7 @@ private extractOrderLines(context: string): string[] {
 
           if (
             commonProductWord &&
-            !/щит|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(part)
+            !/щит|мебельный|брус|доск|слэб|ступ|тетив|поруч|баляс/i.test(part)
           ) {
             part = `${commonProductWord} ${part}`;
           }
