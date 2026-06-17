@@ -1803,6 +1803,21 @@ if (quantityWordMatch) {
     /(?:^|\D)(\d{1,3})\s+(\d{2,4})\s+(\d{3,4})(?:\D|$)/i,
   );
 
+  const meterLengthMatch = normalizedMessage.match(
+  /(\d{1,3})\s*x\s*(\d+(?:[.,]\d+)?)\s*м\b/i,
+);
+
+if (meterLengthMatch) {
+  const height = Number(meterLengthMatch[1]);
+  const lengthMeters = Number(meterLengthMatch[2].replace(',', '.'));
+
+  return {
+    height,
+    width: 900,
+    length: Math.round(lengthMeters * 1000),
+  };
+}
+
   const match = strictMatch || freeMatch;
 
   if (!match) {
@@ -2189,12 +2204,45 @@ private extractLastProductContext(historyContext: string): string | null {
   return [lastProduct.line, ...details].join(' ');
 }
 private extractOrderLines(context: string): string[] {
-  const rawLines = context
+  const clientLines = context
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
+    .filter((line) => line.toLowerCase().startsWith('клиент:'))
     .map((line) => line.replace(/^Клиент:\s*/i, '').trim())
     .filter((line) => !/^Бот:/i.test(line));
+
+  const phoneLineIndex = clientLines.findIndex((line) =>
+    /\+?\d[\d\s\-()]{8,}\d/.test(line),
+  );
+
+  const linesBeforePhone =
+    phoneLineIndex > 0 ? clientLines.slice(0, phoneLineIndex) : clientLines;
+
+  const productLinesBeforePhone = linesBeforePhone.filter(
+    (line) =>
+      this.hasProductWords(line) ||
+      this.extractDimensions(line) ||
+      this.extractQuantity(line) ||
+      this.extractWarehouse(line),
+  );
+
+  const lastProductLine = [...productLinesBeforePhone]
+    .reverse()
+    .find((line) => this.hasProductWords(line) || this.extractDimensions(line));
+
+  const lastWarehouseLine = [...productLinesBeforePhone]
+    .reverse()
+    .find((line) => this.extractWarehouse(line));
+
+  const rawLines = lastProductLine
+    ? [
+        lastProductLine,
+        ...(lastWarehouseLine && lastWarehouseLine !== lastProductLine
+          ? [lastWarehouseLine]
+          : []),
+      ]
+    : clientLines;
 
   const result: string[] = [];
 

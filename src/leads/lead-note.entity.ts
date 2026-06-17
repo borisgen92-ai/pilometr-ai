@@ -23,7 +23,7 @@ export class LeadNote {
   })
   authorName: string;
 
-  @ManyToOne(() => Lead, {
+  @ManyToOne(() => Lead, (lead) => lead.notes, {
     onDelete: 'CASCADE',
   })
   lead: Lead;

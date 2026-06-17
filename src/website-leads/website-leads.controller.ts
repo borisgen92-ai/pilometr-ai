@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Headers,
   HttpCode,
   Post,
+  UnauthorizedException,
 } from '@nestjs/common';
 
 import { LeadsService } from '../leads/leads.service';
@@ -19,8 +21,9 @@ export class WebsiteLeadsController {
   @Post()
   @HttpCode(201)
   async createWebsiteLead(
-    @Body()
-    body: {
+  @Headers('x-pilometr-site-token') siteToken: string,
+  @Body()
+  body: {
       clientName?: string;
       phone?: string;
       productInterest?: string;
@@ -28,6 +31,12 @@ export class WebsiteLeadsController {
       pageUrl?: string;
     },
   ) {
+    const expectedToken = process.env.WEBSITE_LEADS_TOKEN;
+
+if (expectedToken && siteToken !== expectedToken) {
+  throw new UnauthorizedException('Invalid website token');
+}
+
     const phone = this.normalizePhone(body.phone);
 
     if (!phone) {

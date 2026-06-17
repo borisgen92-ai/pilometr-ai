@@ -109,6 +109,19 @@ const datePart = `${day}-${month}-${year}`;
     await this.vkService.sendMessage(Number(savedLead.vkPeerId), message);
   }
 
+  if (status === LeadStatus.WON && savedLead.vkPeerId) {
+  const message =
+    `Ваш заказ № ${savedLead.orderNumber || savedLead.id} успешно выдан.\n\n` +
+    `Спасибо за покупку в Пилометре!\n\n` +
+    `Будем рады видеть вас снова.\n\n` +
+    `Если понадобятся мебельные щиты, ступени, слэбы, брус или другие изделия из дерева — обращайтесь.`;
+
+  await this.vkService.sendMessage(
+    Number(savedLead.vkPeerId),
+    message,
+  );
+}
+
   return savedLead;
 }
 

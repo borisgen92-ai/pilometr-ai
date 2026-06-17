@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToMany
 } from 'typeorm';
+
+import { LeadItem } from './lead-item.entity';
 
 export enum LeadStatus {
   NEW = 'new',
@@ -70,5 +73,10 @@ export class Lead {
   createdAt: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+updatedAt: Date;
+
+@OneToMany(() => LeadItem, (item) => item.lead, {
+  cascade: true,
+})
+items: LeadItem[];
 }
