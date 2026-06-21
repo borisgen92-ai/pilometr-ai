@@ -122,39 +122,40 @@ const itemsText =
 
 ${items
   .map((item, index) => {
-    const itemStock = item.warehouseStock as any;
-    const itemWarehouse = item.bestWarehouse || 'Не указан';
+  const itemStock = item.warehouseStock as any;
+  const itemWarehouse = item.bestWarehouse || 'Не указан';
+  const itemQuantity = item.requestedQuantity || item.quantity || 0;
+  const itemPrice = item.productPrice || item.price || 0;
+  const itemUnit = item.productUnit || 'шт';
 
-    const itemSelectedStock =
-      itemWarehouse.toLowerCase().includes('север')
-        ? itemStock?.sever
-        : itemWarehouse.toLowerCase().includes('марьино')
-          ? itemStock?.marino
-          : itemWarehouse.toLowerCase().includes('рощино')
-            ? itemStock?.roshino
-            : itemWarehouse.toLowerCase().includes('ладога')
-              ? itemStock?.ladoga
-              : null;
+  const itemSelectedStock =
+    itemWarehouse.toLowerCase().includes('север')
+      ? itemStock?.sever
+      : itemWarehouse.toLowerCase().includes('марьино')
+        ? itemStock?.marino
+        : itemWarehouse.toLowerCase().includes('рощино')
+          ? itemStock?.roshino
+          : itemWarehouse.toLowerCase().includes('ладога')
+            ? itemStock?.ladoga
+            : null;
 
-    const itemShortage =
-      item.requestedQuantity && itemSelectedStock !== null
-        ? Math.max(0, item.requestedQuantity - itemSelectedStock)
-        : null;
+  const itemShortage =
+    itemQuantity && itemSelectedStock !== null
+      ? Math.max(0, itemQuantity - itemSelectedStock)
+      : null;
 
-    const itemTotal =
-      item.productPrice && item.requestedQuantity
-        ? item.productPrice * item.requestedQuantity
-        : null;
+  const itemTotal =
+    item.total || (itemPrice && itemQuantity ? itemPrice * itemQuantity : null);
 
-    return `${index + 1}. ${item.productName}
-🔢 Количество: ${item.requestedQuantity || 'Не указано'} ${item.productUnit || ''}
+  return `${index + 1}. ${item.productName}
+🔢 Количество: ${itemQuantity || 'Не указано'} ${itemUnit}
 📍 Магазин: ${itemWarehouse}
-📦 Остаток: ${itemSelectedStock ?? 'Не указан'} ${item.productUnit || ''}
-${itemShortage && itemShortage > 0 ? `⚠️ Не хватает: ${itemShortage} ${item.productUnit || ''}` : '✅ В наличии достаточно'}
-💰 Цена: ${item.productPrice || 'Не указано'} ₽/${item.productUnit || ''}
+📦 Остаток: ${itemSelectedStock ?? 'Не указан'} ${itemUnit}
+${itemShortage && itemShortage > 0 ? `⚠️ Не хватает: ${itemShortage} ${itemUnit}` : '✅ В наличии достаточно'}
+💰 Цена: ${itemPrice || 'Не указано'} ₽/${itemUnit}
 💵 Сумма: ${itemTotal ?? 'Не указано'} ₽`;
-  })
-  .join('\n\n')}
+})
+.join('\n\n')}
 
 💵 Итого:
 ${lead.budget || 'Не указано'} ₽`

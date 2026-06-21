@@ -25,4 +25,13 @@ export class LeadItem {
 
   @Column('float')
   total: number;
+
+  @Column({ nullable: true })
+  productUnit: string;
+
+  @Column({ nullable: true })
+  bestWarehouse: string;
+
+  @Column('jsonb', { nullable: true })
+  warehouseStock: any;
 }

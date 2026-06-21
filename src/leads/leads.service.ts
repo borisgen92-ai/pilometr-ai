@@ -46,22 +46,47 @@ export class LeadsService {
     return `${prefix}-${datePart}-${Date.now()}`;
   }
 
-  async create(data: Partial<Lead>) {
+  async create(data: any): Promise<any> {
     if (!data.orderNumber) {
       data.orderNumber = await this.generateOrderNumber(data.source);
     }
 
-    const lead = this.leadsRepository.create(data);
+    const normalizedItems = Array.isArray(data.items)
+      ? data.items.map((item: any) => {
+          const price = item.productPrice || item.price || 0;
+          const quantity = item.requestedQuantity || item.quantity || 0;
+
+          return {
+            productId: item.productId || null,
+            productName: item.productName,
+            price,
+            quantity,
+            total: item.total || price * quantity,
+            productUnit: item.productUnit || 'шт',
+            bestWarehouse: item.bestWarehouse || null,
+            warehouseStock: item.warehouseStock || null,
+          };
+        })
+      : undefined;
+
+    const lead = this.leadsRepository.create({
+      ...data,
+      items: normalizedItems,
+    } as any);
+
     const savedLead = await this.leadsRepository.save(lead);
 
     return {
-      ...savedLead,
+      ...(savedLead as any),
       isDuplicate: false,
     };
   }
 
   findAll() {
     return this.leadsRepository.find({
+      relations: {
+        items: true,
+      },
       order: {
         createdAt: 'DESC',
       },
@@ -71,6 +96,9 @@ export class LeadsService {
   async findOne(id: string) {
     const lead = await this.leadsRepository.findOne({
       where: { id },
+      relations: {
+        items: true,
+      },
     });
 
     if (!lead) {
@@ -83,6 +111,9 @@ export class LeadsService {
   findByStatus(status: LeadStatus) {
     return this.leadsRepository.find({
       where: { status },
+      relations: {
+        items: true,
+      },
       order: {
         createdAt: 'DESC',
       },

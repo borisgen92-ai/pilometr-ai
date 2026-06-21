@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 
 import { LeadNote } from './lead-note.entity';
+import { LeadItem } from './entities/lead-item.entity';
 
 export enum LeadStatus {
   NEW = 'new',
@@ -37,25 +38,8 @@ export class Lead {
   @Column({ nullable: true })
   productInterest: string;
 
-  @Column({
-  type: 'jsonb',
-  nullable: true,
-})
-items: {
-  productId?: string;
-  productName: string;
-  productPrice?: number;
-  productUnit?: string;
-  requestedQuantity?: number;
-  warehouseStock?: {
-    volhov: number;
-    sever: number;
-    marino: number;
-    roshino: number;
-    ladoga: number;
-  };
-  bestWarehouse?: string;
-}[];
+  @OneToMany(() => LeadItem, (item) => item.lead, { cascade: true })
+items: LeadItem[];
 
   @Column({ nullable: true })
   productId: string;
