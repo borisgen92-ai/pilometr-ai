@@ -290,13 +290,21 @@ console.log(
 
 if (
   !pendingOrder &&
-  /подтверждаю|подтвердить|верно|всё верно|все верно/i.test(cleanMessage)
+  /confirm_order|подтверждаю|подтвердить|верно|всё верно|все верно|да/i.test(
+    cleanMessage,
+  )
 ) {
-  return {
-    response:
-      'Заявка уже была подтверждена и передана менеджеру. Если хотите оформить новый заказ — напишите новый товар, количество и магазин.',
+  const response =
+    'Не нашёл активный заказ для подтверждения. Если хотите оформить заказ — напишите товар, количество и магазин.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
     lead: null,
-  };
+    source: 'confirm_without_pending_order_blocked',
+  });
 }
 
 if (
