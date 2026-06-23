@@ -127,6 +127,19 @@ export class LeadsService {
 
     const savedLead = await this.leadsRepository.save(lead);
 
+    if (status === LeadStatus.IN_PROGRESS && savedLead.vkPeerId) {
+  const message =
+    `Здравствуйте!\n\n` +
+    `Ваш заказ № ${savedLead.orderNumber || savedLead.id} принят в работу.\n\n` +
+    `Менеджер проверяет наличие и подготовит заказ.\n\n` +
+    `Мы сообщим вам, когда заказ будет готов к выдаче.`;
+
+  await this.vkService.sendMessage(
+    Number(savedLead.vkPeerId),
+    message,
+  );
+}
+
     if (status === LeadStatus.NEGOTIATION && savedLead.vkPeerId) {
       const message =
         `Ваш заказ № ${savedLead.orderNumber || savedLead.id} готов к выдаче.\n\n` +
