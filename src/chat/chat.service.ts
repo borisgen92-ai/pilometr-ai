@@ -58,6 +58,56 @@ if (
 
     const pendingOrder = this.pendingOrders.get(sessionId);
 
+    if (/отменить|отмена|cancel_order/i.test(cleanMessage)) {
+  this.pendingOrders.delete(sessionId);
+
+  const response =
+    'Заказ отменён. Если понадобится помощь — напишите новый запрос.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'order_cancelled',
+  });
+}
+
+if (
+  pendingOrder?.needsStockDecision &&
+  /оформить|доступн|available_stock/i.test(cleanMessage)
+) {
+  const availableQuantity = pendingOrder.availableQuantity || 1;
+  const unit = pendingOrder.productUnit || 'шт';
+
+  pendingOrder.requestedQuantity = availableQuantity;
+  pendingOrder.budget = (pendingOrder.productPrice || 0) * availableQuantity;
+  pendingOrder.needsStockDecision = false;
+  pendingOrder.needsPhone = true;
+
+  if (Array.isArray(pendingOrder.items) && pendingOrder.items[0]) {
+    pendingOrder.items[0].requestedQuantity = availableQuantity;
+    pendingOrder.items[0].total =
+      (pendingOrder.items[0].productPrice || 0) * availableQuantity;
+  }
+
+  this.pendingOrders.set(sessionId, pendingOrder);
+
+  const response =
+    `Хорошо, оформим доступное количество: ${availableQuantity} ${unit}.\n\n` +
+    'Укажите, пожалуйста, номер телефона для оформления заявки.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'stock_shortage_confirm_available_waiting_phone',
+  });
+}
+
 console.log(
   'PENDING ORDER:',
   JSON.stringify(pendingOrder, null, 2),
@@ -121,12 +171,27 @@ if (
     cleanMessage,
   )
 ) {
+    if (pendingOrder.needsPhone) {
+  const response =
+    'Отлично. Укажите, пожалуйста, номер телефона для оформления заявки.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'review_confirmed_waiting_phone',
+  });
+}
   const lead = await this.leadsService.create(pendingOrder);
 
   this.pendingOrders.delete(sessionId);
 
 const response =
-  'Спасибо, заказ подтверждён. Заявка создана и передана менеджеру.';
+  `Спасибо, заказ подтверждён.\n\n` +
+  `Номер заказа: ${lead.orderNumber || lead.id}\n\n` +
+  `Заявка создана и передана менеджеру.`;
 
 return this.saveAndReturn(sessionId, response, {
   userMessage: pendingOrder.productInterest || message,
@@ -618,6 +683,18 @@ const confirmationKeyboard = meta?.vkPeerId
             color: 'secondary',
           },
         ],
+                [
+          {
+            action: {
+              type: 'text',
+              label: '❌ Отменить заказ',
+              payload: JSON.stringify({
+                action: 'cancel_order',
+              }),
+            },
+            color: 'negative',
+          },
+        ],
       ],
     }
   : undefined;
@@ -637,7 +714,7 @@ const productsText = orderItems
 const response =
   `Проверьте заказ:\n\n${productsText}\n\n` +
   `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
-  `Если всё верно — напишите "Подтверждаю".`;
+  `Если всё верно — нажмите кнопку подтверждения.`;
 
 return this.saveAndReturn(sessionId, response, {
   userMessage: message,
@@ -648,6 +725,113 @@ return this.saveAndReturn(sessionId, response, {
   keyboard: confirmationKeyboard,
   source: 'waiting_confirmation',
 });
+}
+
+if (
+  pendingOrder?.needsPhone &&
+  earlyPhone &&
+  message.replace(/\D/g, '').length >= 10
+) {
+  pendingOrder.phone = earlyPhone;
+  pendingOrder.needsPhone = false;
+
+  if (Array.isArray(pendingOrder.items)) {
+    pendingOrder.items = pendingOrder.items.map((item) => {
+      const qty = item.requestedQuantity || pendingOrder.requestedQuantity || 1;
+
+      return {
+        ...item,
+        requestedQuantity: qty,
+        total: (item.productPrice || 0) * qty,
+      };
+    });
+  }
+
+  const totalBudget = Array.isArray(pendingOrder.items)
+    ? pendingOrder.items.reduce(
+        (sum, item) =>
+          sum + (item.productPrice || 0) * (item.requestedQuantity || 0),
+        0,
+      )
+    : (pendingOrder.productPrice || 0) *
+      (pendingOrder.requestedQuantity || 0);
+
+  pendingOrder.budget = totalBudget;
+
+  this.pendingOrders.set(sessionId, pendingOrder);
+
+  const confirmationKeyboard = meta?.vkPeerId
+    ? {
+        one_time: true,
+        buttons: [
+          [
+            {
+              action: {
+                type: 'text',
+                label: '✅ Подтверждаю заказ',
+                payload: JSON.stringify({
+                  action: 'confirm_order',
+                }),
+              },
+              color: 'positive',
+            },
+          ],
+          [
+            {
+              action: {
+                type: 'text',
+                label: '✏️ Изменить заказ',
+                payload: JSON.stringify({
+                  action: 'change_order',
+                }),
+              },
+              color: 'secondary',
+            },
+          ],
+          [
+            {
+              action: {
+                type: 'text',
+                label: '❌ Отменить заказ',
+                payload: JSON.stringify({
+                  action: 'cancel_order',
+                }),
+              },
+              color: 'negative',
+            },
+          ],
+        ],
+      }
+    : undefined;
+
+  const productsText = (pendingOrder.items || [])
+    .map(
+      (item, index) =>
+        `${index + 1}. ${item.productName}\n` +
+        `Количество: ${item.requestedQuantity || 0} ${this.formatUnit(
+          item.productUnit || 'шт',
+        )}\n` +
+        `Сумма: ${(
+          (item.productPrice || 0) *
+          (item.requestedQuantity || 0)
+        ).toLocaleString('ru-RU')} ₽`,
+    )
+    .join('\n\n');
+
+  const response =
+    `Проверьте заказ:\n\n${productsText}\n\n` +
+    `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
+    `Если всё верно — нажмите кнопку подтверждения.`;
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: pendingOrder.productInterest || message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    keyboard: confirmationKeyboard,
+    source: 'pending_order_phone_received_waiting_confirmation',
+  });
 }
 
 if (
@@ -909,6 +1093,18 @@ const confirmationKeyboard = meta?.vkPeerId
             color: 'secondary',
           },
         ],
+                [
+          {
+            action: {
+              type: 'text',
+              label: '❌ Отменить заказ',
+              payload: JSON.stringify({
+                action: 'cancel_order',
+              }),
+            },
+            color: 'negative',
+          },
+        ],
       ],
     }
   : undefined;
@@ -928,7 +1124,7 @@ const productsText = finalOrderItems
 const confirmResponse =
   `Проверьте заказ:\n\n${productsText}\n\n` +
   `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
-  `Если всё верно — напишите "Подтверждаю".`;
+  `Если всё верно — нажмите кнопку подтверждения.`;
 
 return this.saveAndReturn(sessionId, confirmResponse, {
   userMessage: message,
@@ -1152,7 +1348,30 @@ productInterest:
         }
 
         const product = products[0];
-        if (products.length > 1) {
+
+if (
+  dimensions &&
+  product &&
+  !product.name.includes(String(dimensions.width))
+) {
+  const response =
+    `Точного товара ${dimensions.width}x${dimensions.height}x${dimensions.length} не нашёл.\n\n` +
+    `Ближайший найденный вариант:\n${product.name}\n\n` +
+    'Подходит этот вариант?';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    intent,
+    response,
+    products: [product],
+    lead: null,
+    source: 'dimension_mismatch',
+  });
+}
+
+if (products.length > 1) {
+
           const options = products.slice(0, 5);
 
           const response =
@@ -1546,8 +1765,222 @@ const response =
   });
 }
 
-  const response =
-    'Для оформления заявки укажите, пожалуйста, номер телефона для связи. Менеджер проверит наличие и свяжется с вами для подтверждения заказа.';
+  const quantity = this.extractQuantity(message) || 1;
+const warehouse = this.extractWarehouse(message);
+const total = productFromSearch.price * quantity;
+
+if (warehouse) {
+  const selectedStock = this.getWarehouseStock(productFromSearch, warehouse);
+
+  if (selectedStock !== null && quantity > selectedStock) {
+    const shortage = quantity - selectedStock;
+
+    const shortageKeyboard = meta?.vkPeerId
+      ? {
+          one_time: true,
+          buttons: [
+            [
+              {
+                action: {
+                  type: 'text',
+                  label: `✅ Оформить ${selectedStock} шт`,
+                  payload: JSON.stringify({
+                    action: 'order_available_stock',
+                  }),
+                },
+                color: 'positive',
+              },
+            ],
+            [
+              {
+                action: {
+                  type: 'text',
+                  label: '🏬 Подобрать другой магазин',
+                  payload: JSON.stringify({
+                    action: 'choose_another_warehouse',
+                  }),
+                },
+                color: 'secondary',
+              },
+            ],
+            [
+              {
+                action: {
+                  type: 'text',
+                  label: '📅 Уточнить срок поставки',
+                  payload: JSON.stringify({
+                    action: 'ask_supply_time',
+                  }),
+                },
+                color: 'secondary',
+              },
+            ],
+            [
+              {
+                action: {
+                  type: 'text',
+                  label: '❌ Отменить',
+                  payload: JSON.stringify({
+                    action: 'cancel_order',
+                  }),
+                },
+                color: 'negative',
+              },
+            ],
+          ],
+        }
+      : undefined;
+
+    this.pendingOrders.set(sessionId, {
+      source: meta?.vkPeerId ? 'vk' : 'chat',
+      vkPeerId: meta?.vkPeerId,
+      productInterest: message,
+      productId: productFromSearch.id,
+      productName: productFromSearch.name,
+      productPrice: productFromSearch.price,
+      productUnit: productFromSearch.unit,
+      requestedQuantity: quantity,
+      availableQuantity: selectedStock,
+      bestWarehouse: warehouse,
+      budget: productFromSearch.price * selectedStock,
+      needsStockDecision: true,
+      warehouseStock: {
+        volhov: productFromSearch.volhovStock ?? 0,
+        sever: productFromSearch.skotnoeStock ?? 0,
+        marino: productFromSearch.lomonosovStock ?? 0,
+        roshino: productFromSearch.roshinoStock ?? 0,
+        ladoga: productFromSearch.ladogaStock ?? 0,
+      },
+      items: [
+        {
+          productId: productFromSearch.id,
+          productName: productFromSearch.name,
+          productPrice: productFromSearch.price,
+          productUnit: productFromSearch.unit,
+          requestedQuantity: quantity,
+          availableQuantity: selectedStock,
+          bestWarehouse: warehouse,
+          warehouseStock: {
+            volhov: productFromSearch.volhovStock ?? 0,
+            sever: productFromSearch.skotnoeStock ?? 0,
+            marino: productFromSearch.lomonosovStock ?? 0,
+            roshino: productFromSearch.roshinoStock ?? 0,
+            ladoga: productFromSearch.ladogaStock ?? 0,
+          },
+        },
+      ],
+    });
+
+    const response =
+      `В магазине ${warehouse} сейчас доступно ${selectedStock} ${this.formatUnit(productFromSearch.unit)}.\n` +
+      `Для заказа ${quantity} ${this.formatUnit(productFromSearch.unit)} не хватает ${shortage} ${this.formatUnit(productFromSearch.unit)}.\n\n` +
+      'Что сделать?';
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: [productFromSearch],
+      lead: null,
+      keyboard: shortageKeyboard,
+      source: 'warehouse_stock_shortage',
+    });
+  }
+}
+
+const reviewKeyboard = meta?.vkPeerId
+  ? {
+      one_time: true,
+      buttons: [
+        [
+          {
+            action: {
+              type: 'text',
+              label: '✅ Всё верно',
+              payload: JSON.stringify({
+                action: 'review_order_ok',
+              }),
+            },
+            color: 'positive',
+          },
+        ],
+        [
+          {
+            action: {
+              type: 'text',
+              label: '✏️ Изменить заказ',
+              payload: JSON.stringify({
+                action: 'review_order_edit',
+              }),
+            },
+            color: 'secondary',
+          },
+        ],
+        [
+          {
+            action: {
+              type: 'text',
+              label: '❌ Отменить',
+              payload: JSON.stringify({
+                action: 'review_order_cancel',
+              }),
+            },
+            color: 'negative',
+          },
+        ],
+      ],
+    }
+  : undefined;
+
+const response =
+  'Проверьте, пожалуйста, что я правильно понял заказ:\n\n' +
+  `📦 ${productFromSearch.name}\n` +
+  `Количество: ${quantity} ${this.formatUnit(productFromSearch.unit)}\n` +
+  (warehouse ? `Магазин: ${warehouse}\n` : '') +
+  `Цена: ${productFromSearch.price} ₽/${this.formatUnit(productFromSearch.unit)}\n` +
+  `Сумма: ${total} ₽\n\n` +
+  'Всё верно?';
+
+this.pendingOrders.set(sessionId, {
+  phone: undefined,
+  clientName: undefined,
+  source: meta?.vkPeerId ? 'vk' : 'chat',
+  vkPeerId: meta?.vkPeerId,
+  aiSummary: `[Категория: Заказ] ${message}`,
+  productInterest: message,
+  productId: productFromSearch.id,
+  productName: productFromSearch.name,
+  productPrice: productFromSearch.price,
+  productUnit: productFromSearch.unit,
+  requestedQuantity: quantity,
+  bestWarehouse: warehouse || this.getBestWarehouse(productFromSearch),
+  budget: total,
+  needsPhone: true,
+  items: [
+    {
+      productId: productFromSearch.id,
+      productName: productFromSearch.name,
+      productPrice: productFromSearch.price,
+      productUnit: productFromSearch.unit,
+      requestedQuantity: quantity,
+      bestWarehouse: warehouse || this.getBestWarehouse(productFromSearch),
+      warehouseStock: {
+        volhov: productFromSearch.volhovStock ?? 0,
+        sever: productFromSearch.skotnoeStock ?? 0,
+        marino: productFromSearch.lomonosovStock ?? 0,
+        roshino: productFromSearch.roshinoStock ?? 0,
+        ladoga: productFromSearch.ladogaStock ?? 0,
+      },
+    },
+  ],
+  warehouseStock: {
+    volhov: productFromSearch.volhovStock ?? 0,
+    sever: productFromSearch.skotnoeStock ?? 0,
+    marino: productFromSearch.lomonosovStock ?? 0,
+    roshino: productFromSearch.roshinoStock ?? 0,
+    ladoga: productFromSearch.ladogaStock ?? 0,
+  },
+});
 
   return this.saveAndReturn(sessionId, response, {
     userMessage: message,
@@ -1555,7 +1988,8 @@ const response =
     response,
     products: [productFromSearch],
     lead: null,
-    source: 'need_phone_before_order_confirmation',
+    source: 'order_review_before_phone',
+keyboard: reviewKeyboard,
   });
 }
 
