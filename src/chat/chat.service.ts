@@ -242,6 +242,55 @@ if (
   });
 }
 
+if (
+  pendingOrder?.needsStockDecision &&
+  /срок|поставк|уточнить|ask_supply_time/i.test(cleanMessage)
+) {
+  const unit = pendingOrder.productUnit || 'шт';
+  const requestedQuantity = pendingOrder.requestedQuantity || 1;
+  const availableQuantity = pendingOrder.availableQuantity || 0;
+  const shortage = Math.max(0, requestedQuantity - availableQuantity);
+
+  pendingOrder.needsStockDecision = false;
+  pendingOrder.needsPhone = true;
+  pendingOrder.supplyRequest = true;
+  pendingOrder.aiSummary =
+    `[Категория: Заказ]\n` +
+    `Клиент просит уточнить срок поставки.\n` +
+    `Товар: ${pendingOrder.productName}\n` +
+    `Нужно: ${requestedQuantity} ${unit}\n` +
+    `Есть: ${availableQuantity} ${unit}\n` +
+    `Не хватает: ${shortage} ${unit}\n\n` +
+    `Исходный запрос: ${pendingOrder.productInterest || message}`;
+
+    pendingOrder.budget =
+  (pendingOrder.productPrice || 0) * requestedQuantity;
+
+if (Array.isArray(pendingOrder.items) && pendingOrder.items[0]) {
+  pendingOrder.items[0].requestedQuantity = requestedQuantity;
+  pendingOrder.items[0].total =
+    (pendingOrder.items[0].productPrice || 0) * requestedQuantity;
+}
+
+  this.pendingOrders.set(sessionId, pendingOrder);
+
+  const response =
+    `Понял. Передам менеджеру запрос на уточнение срока поставки недостающего количества.\n\n` +
+    `Нужно: ${requestedQuantity} ${unit}\n` +
+    `Сейчас доступно: ${availableQuantity} ${unit}\n` +
+    `Не хватает: ${shortage} ${unit}\n\n` +
+    `Укажите, пожалуйста, номер телефона для связи.`;
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'supply_time_request_waiting_phone',
+  });
+}
+
 console.log(
   'PENDING ORDER:',
   JSON.stringify(pendingOrder, null, 2),
@@ -876,6 +925,36 @@ if (
 ) {
   pendingOrder.phone = earlyPhone;
   pendingOrder.needsPhone = false;
+
+  if (pendingOrder.supplyRequest) {
+  const lead = await this.leadsService.create({
+    ...pendingOrder,
+    phone: earlyPhone,
+    aiSummary:
+      pendingOrder.aiSummary ||
+      `[Категория: Заказ]\nКлиент просит уточнить срок поставки.`,
+    productInterest:
+      `Запрос срока поставки\n\n` +
+      `${pendingOrder.productInterest || ''}`,
+    status: 'new',
+  });
+
+  this.pendingOrders.delete(sessionId);
+
+  const response =
+    `Спасибо, заявка создана и передана менеджеру.\n\n` +
+    `Номер заявки: ${lead.orderNumber || lead.id}\n\n` +
+    `Менеджер уточнит срок поставки и свяжется с вами.`;
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: pendingOrder.productInterest || message,
+    sessionId,
+    response,
+    products: [],
+    lead,
+    source: 'supply_request_created',
+  });
+}
 
   if (Array.isArray(pendingOrder.items)) {
     pendingOrder.items = pendingOrder.items.map((item) => {
