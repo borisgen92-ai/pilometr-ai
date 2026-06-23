@@ -108,6 +108,140 @@ if (
   });
 }
 
+if (
+  pendingOrder?.needsStockDecision &&
+  /другой магазин|подобрать|choose_another_warehouse/i.test(cleanMessage)
+) {
+  const stock = pendingOrder.warehouseStock || {};
+  const unit = pendingOrder.productUnit || 'шт';
+  const requestedQuantity = pendingOrder.requestedQuantity || 1;
+
+  const warehouseOptions = [
+    { name: 'Север', value: stock.sever || 0 },
+    { name: 'Марьино', value: stock.marino || 0 },
+    { name: 'Рощино', value: stock.roshino || 0 },
+    { name: 'Ладога', value: stock.ladoga || 0 },
+  ];
+
+  const warehouseKeyboard = meta?.vkPeerId
+    ? {
+        one_time: true,
+        buttons: warehouseOptions
+          .filter((item) => item.value > 0)
+          .map((item) => [
+            {
+              action: {
+                type: 'text',
+                label: `📍 ${item.name} — ${item.value} ${unit}`,
+                payload: JSON.stringify({
+                  action: 'select_warehouse',
+                  warehouse: item.name,
+                }),
+              },
+              color:
+                item.value >= requestedQuantity ? 'positive' : 'secondary',
+            },
+          ])
+          .concat([
+            [
+              {
+                action: {
+                  type: 'text',
+                  label: '❌ Отменить',
+                  payload: JSON.stringify({
+                    action: 'cancel_order',
+                  }),
+                },
+                color: 'negative',
+              },
+            ],
+          ]),
+      }
+    : undefined;
+
+  const warehousesText = warehouseOptions
+    .map((item) => `📍 ${item.name} — ${item.value} ${unit}`)
+    .join('\n');
+
+  const totalAvailable = warehouseOptions.reduce(
+    (sum, item) => sum + item.value,
+    0,
+  );
+
+  const response =
+    `По магазинам сейчас доступно:\n\n${warehousesText}\n\n` +
+    `Нужно: ${requestedQuantity} ${unit}\n` +
+    `Всего по магазинам: ${totalAvailable} ${unit}\n\n` +
+    'Выберите магазин для самовывоза.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    keyboard: warehouseKeyboard,
+    source: 'stock_shortage_choose_another_warehouse',
+  });
+}
+
+if (
+  pendingOrder?.needsStockDecision &&
+  /север|марьино|рощино|ладога/i.test(cleanMessage)
+) {
+  const selectedWarehouse = this.extractWarehouse(message);
+  const stock = pendingOrder.warehouseStock || {};
+  const unit = pendingOrder.productUnit || 'шт';
+  const requestedQuantity = pendingOrder.requestedQuantity || 1;
+
+  const selectedStock =
+    selectedWarehouse?.toLowerCase().includes('север')
+      ? stock.sever || 0
+      : selectedWarehouse?.toLowerCase().includes('марьино')
+        ? stock.marino || 0
+        : selectedWarehouse?.toLowerCase().includes('рощино')
+          ? stock.roshino || 0
+          : selectedWarehouse?.toLowerCase().includes('ладога')
+            ? stock.ladoga || 0
+            : 0;
+
+  const finalQuantity =
+    selectedStock >= requestedQuantity ? requestedQuantity : selectedStock;
+
+  pendingOrder.bestWarehouse = selectedWarehouse;
+  pendingOrder.availableQuantity = selectedStock;
+  pendingOrder.requestedQuantity = finalQuantity;
+  pendingOrder.budget = (pendingOrder.productPrice || 0) * finalQuantity;
+  pendingOrder.needsStockDecision = false;
+  pendingOrder.needsPhone = true;
+
+  if (Array.isArray(pendingOrder.items) && pendingOrder.items[0]) {
+    pendingOrder.items[0].bestWarehouse = selectedWarehouse;
+    pendingOrder.items[0].availableQuantity = selectedStock;
+    pendingOrder.items[0].requestedQuantity = finalQuantity;
+    pendingOrder.items[0].total =
+      (pendingOrder.items[0].productPrice || 0) * finalQuantity;
+  }
+
+  this.pendingOrders.set(sessionId, pendingOrder);
+
+  const response =
+    selectedStock >= requestedQuantity
+      ? `Отлично, в магазине ${selectedWarehouse} доступно ${selectedStock} ${unit}. Оформим ${requestedQuantity} ${unit}.\n\n` +
+        'Укажите, пожалуйста, номер телефона для оформления заявки.'
+      : `В магазине ${selectedWarehouse} доступно ${selectedStock} ${unit}. Оформим доступное количество: ${finalQuantity} ${unit}.\n\n` +
+        'Укажите, пожалуйста, номер телефона для оформления заявки.';
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: [],
+    lead: null,
+    source: 'stock_shortage_selected_warehouse_waiting_phone',
+  });
+}
+
 console.log(
   'PENDING ORDER:',
   JSON.stringify(pendingOrder, null, 2),
