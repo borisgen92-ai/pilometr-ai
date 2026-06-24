@@ -10,7 +10,10 @@ import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class ChatService {
-    private pendingOrders = new Map<string, any>();
+        private pendingOrders = new Map<string, any>();
+  private pendingGradeSelections = new Map<string, any>();
+  private pendingAlternativeSelections = new Map<string, any>();
+  private pendingMultiAlternativeSelections = new Map<string, any>();
 
   constructor(
     private readonly productsService: ProductsService,
@@ -57,6 +60,566 @@ if (
 }
 
     const pendingOrder = this.pendingOrders.get(sessionId);
+
+        const pendingGradeSelection = this.pendingGradeSelections.get(sessionId);
+
+    if (pendingGradeSelection?.products?.length) {
+      const selectedProduct =
+        pendingGradeSelection.products.find((p) => {
+          const name = String(p.name || '').toLowerCase();
+
+          if (/сорт\s*э|экстра|\bэ\b/i.test(cleanMessage)) {
+            return name.includes('сорт э') || name.includes('экстра');
+          }
+
+          if (/сорт\s*в|\bв\b/i.test(cleanMessage)) {
+            return name.includes('сорт в');
+          }
+
+          if (/сорт\s*а|\bа\b/i.test(cleanMessage)) {
+            return name.includes('сорт а');
+          }
+
+          return false;
+        }) || null;
+
+      if (selectedProduct) {
+        this.pendingGradeSelections.delete(sessionId);
+
+        const quantity = pendingGradeSelection.quantity || 1;
+        const warehouse = pendingGradeSelection.warehouse;
+        const total = (selectedProduct.price || 0) * quantity;
+
+        const newPendingOrder = {
+          phone: undefined,
+          clientName: undefined,
+          source: meta?.vkPeerId ? 'vk' : 'chat',
+          vkPeerId: meta?.vkPeerId,
+          aiSummary: `[Категория: Заказ] ${pendingGradeSelection.originalMessage}`,
+          productInterest: pendingGradeSelection.originalMessage,
+          productId: selectedProduct.id,
+          productName: selectedProduct.name,
+          productPrice: selectedProduct.price,
+          productUnit: selectedProduct.unit,
+          requestedQuantity: quantity,
+          bestWarehouse: warehouse || this.getBestWarehouse(selectedProduct),
+          budget: total,
+          needsPhone: true,
+          warehouseStock: {
+            volhov: selectedProduct.volhovStock ?? 0,
+            sever: selectedProduct.skotnoeStock ?? 0,
+            marino: selectedProduct.lomonosovStock ?? 0,
+            roshino: selectedProduct.roshinoStock ?? 0,
+            ladoga: selectedProduct.ladogaStock ?? 0,
+          },
+          items: [
+            {
+              productId: selectedProduct.id,
+              productName: selectedProduct.name,
+              productPrice: selectedProduct.price,
+              productUnit: selectedProduct.unit,
+              requestedQuantity: quantity,
+              bestWarehouse: warehouse || this.getBestWarehouse(selectedProduct),
+              warehouseStock: {
+                volhov: selectedProduct.volhovStock ?? 0,
+                sever: selectedProduct.skotnoeStock ?? 0,
+                marino: selectedProduct.lomonosovStock ?? 0,
+                roshino: selectedProduct.roshinoStock ?? 0,
+                ladoga: selectedProduct.ladogaStock ?? 0,
+              },
+              total,
+            },
+          ],
+        };
+
+        this.pendingOrders.set(sessionId, newPendingOrder);
+
+        const response =
+          `Выбрали: ${selectedProduct.name}\n` +
+          `Цена: ${selectedProduct.price} ₽/${selectedProduct.unit || 'шт'}\n\n` +
+          'Укажите, пожалуйста, номер телефона для оформления заявки.';
+
+        return this.saveAndReturn(sessionId, response, {
+          userMessage: message,
+          sessionId,
+          response,
+          products: [selectedProduct],
+          lead: null,
+          source: 'grade_selected_waiting_phone',
+        });
+      }
+    }
+
+    const pendingMultiAlternativeSelection =
+  this.pendingMultiAlternativeSelections.get(sessionId);
+
+if (pendingMultiAlternativeSelection) {
+  console.log(
+    'MULTI_ALTERNATIVE_SELECTION:',
+    cleanMessage,
+  );
+
+  const selectedNumberMatch = cleanMessage.match(/^\s*(\d+)/);
+const selectedNumber = selectedNumberMatch
+  ? Number(selectedNumberMatch[1])
+  : 0;
+
+  const currentItem =
+    pendingMultiAlternativeSelection.missingItems[
+      pendingMultiAlternativeSelection.currentIndex
+    ];
+
+  const selectedAlternative =
+    currentItem?.alternatives?.[selectedNumber - 1];
+
+  if (selectedAlternative) {
+    currentItem.selectedAlternative = selectedAlternative;
+
+    pendingMultiAlternativeSelection.currentIndex++;
+
+    if (
+      pendingMultiAlternativeSelection.currentIndex <
+      pendingMultiAlternativeSelection.missingItems.length
+    ) {
+      const nextItem =
+        pendingMultiAlternativeSelection.missingItems[
+          pendingMultiAlternativeSelection.currentIndex
+        ];
+
+            const hasAlternatives =
+        Array.isArray(nextItem.alternatives) &&
+        nextItem.alternatives.length > 0;
+
+      const keyboard =
+        meta?.vkPeerId && hasAlternatives
+          ? {
+              one_time: true,
+              buttons: (nextItem.alternatives || []).map(
+                (alt: any, index: number) => [
+                  {
+                    action: {
+                      type: 'text',
+                      label: `${index + 1}. ${alt.productName}`,
+                      payload: JSON.stringify({
+                        action: 'multi_alternative_select',
+                        index,
+                      }),
+                    },
+                    color: 'primary',
+                  },
+                ],
+              ),
+            }
+          : undefined;
+
+      const response = hasAlternatives
+        ? `Не нашёл точный товар для позиции ${
+            pendingMultiAlternativeSelection.currentIndex + 1
+          }:\n\n` +
+          `${nextItem.originalLine}\n\n` +
+          `Выберите подходящий вариант кнопкой ниже.`
+                : `Не нашёл точный товар для позиции ${
+            pendingMultiAlternativeSelection.currentIndex + 1
+          }:\n\n` +
+          `${nextItem.originalLine}\n\n` +
+          `Похожих вариантов в каталоге тоже не нашёл.\n\n` +
+          `Укажите, пожалуйста, номер телефона — менеджер проверит эту позицию вручную.`;
+
+        if (!hasAlternatives) {
+          const selectedItems = pendingMultiAlternativeSelection.missingItems
+            .filter((item: any) => item.selectedAlternative)
+            .map((item: any) => {
+              const alt = item.selectedAlternative;
+              const quantity = item.requestedQuantity || 1;
+              const warehouse = item.bestWarehouse;
+              const total = (alt.productPrice || 0) * quantity;
+
+              return {
+                productId: alt.productId,
+                productName: alt.productName,
+                productPrice: alt.productPrice,
+                productUnit: alt.productUnit,
+                requestedQuantity: quantity,
+                bestWarehouse: warehouse,
+                warehouseStock: alt.warehouseStock,
+                total,
+              };
+            });
+
+          const manualItem = {
+            productName: `Ручная проверка: ${nextItem.originalLine}`,
+            requestedQuantity: nextItem.requestedQuantity || 1,
+            bestWarehouse: nextItem.bestWarehouse,
+            productPrice: 0,
+            productUnit: 'шт',
+            total: 0,
+            manualCheck: true,
+          };
+
+          const allItems = [...selectedItems, manualItem];
+
+          const totalBudget = allItems.reduce(
+            (sum, item) =>
+              sum + (item.productPrice || 0) * (item.requestedQuantity || 0),
+            0,
+          );
+
+          this.pendingMultiAlternativeSelections.delete(sessionId);
+          this.pendingOrders.set(sessionId, {
+            phone: undefined,
+            clientName: undefined,
+            source: meta?.vkPeerId ? 'vk' : 'chat',
+            vkPeerId: meta?.vkPeerId,
+            aiSummary: `[Категория: Заказ] ${pendingMultiAlternativeSelection.originalMessage || ''}`,
+            productInterest: pendingMultiAlternativeSelection.originalMessage || '',
+            items: allItems,
+            productName: allItems[0]?.productName,
+            productPrice: allItems[0]?.productPrice,
+            productUnit: allItems[0]?.productUnit,
+            requestedQuantity: allItems[0]?.requestedQuantity,
+            bestWarehouse: allItems[0]?.bestWarehouse,
+            budget: totalBudget,
+            needsPhone: true,
+            manualCheck: true,
+          });
+        }
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        response,
+        products: [],
+        lead: null,
+        keyboard,
+        source: 'multi_alternative_next_position',
+      });
+    }
+
+          const selectedItems = pendingMultiAlternativeSelection.missingItems
+  .filter((item: any) => item.selectedAlternative)
+  .map(
+        (item: any) => {
+          const alt = item.selectedAlternative;
+          const quantity = item.requestedQuantity || 1;
+          const warehouse = item.bestWarehouse;
+          const total = (alt.productPrice || 0) * quantity;
+
+          return {
+            productId: alt.productId,
+            productName: alt.productName,
+            productPrice: alt.productPrice,
+            productUnit: alt.productUnit,
+            requestedQuantity: quantity,
+            bestWarehouse: warehouse,
+            warehouseStock: alt.warehouseStock,
+            total,
+          };
+        },
+      );
+
+      const allItems = [
+        ...(pendingMultiAlternativeSelection.foundItems || []),
+        ...selectedItems,
+      ];
+
+      const totalBudget = allItems.reduce(
+        (sum, item) =>
+          sum + (item.productPrice || 0) * (item.requestedQuantity || 0),
+        0,
+      );
+
+      const newPendingOrder = {
+        phone: undefined,
+        clientName: undefined,
+        source: meta?.vkPeerId ? 'vk' : 'chat',
+        vkPeerId: meta?.vkPeerId,
+        aiSummary: `[Категория: Заказ] ${pendingMultiAlternativeSelection.originalMessage || ''}`,
+        productInterest: pendingMultiAlternativeSelection.originalMessage || '',
+        items: allItems,
+        productId: allItems[0]?.productId,
+        productName: allItems[0]?.productName,
+        productPrice: allItems[0]?.productPrice,
+        productUnit: allItems[0]?.productUnit,
+        requestedQuantity: allItems[0]?.requestedQuantity,
+        warehouseStock: allItems[0]?.warehouseStock,
+        bestWarehouse: allItems[0]?.bestWarehouse,
+        budget: totalBudget,
+        needsPhone: true,
+      };
+
+      this.pendingMultiAlternativeSelections.delete(sessionId);
+      this.pendingOrders.set(sessionId, newPendingOrder);
+
+      const productsText = allItems
+        .map(
+          (item, index) =>
+            `${index + 1}. ${item.productName}\n` +
+            `Количество: ${item.requestedQuantity || 0} ${this.formatUnit(item.productUnit || 'шт')}\n` +
+            `Сумма: ${((item.productPrice || 0) * (item.requestedQuantity || 0)).toLocaleString('ru-RU')} ₽`,
+        )
+        .join('\n\n');
+
+        const clearKeyboard = meta?.vkPeerId
+  ? {
+      one_time: true,
+      buttons: [],
+    }
+  : undefined;
+
+      const response =
+        `Выбраны варианты:\n\n${productsText}\n\n` +
+        `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
+        'Укажите, пожалуйста, номер телефона для оформления заявки.';
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        response,
+        products: [],
+        lead: null,
+        keyboard: clearKeyboard,
+        source: 'multi_alternatives_selected_waiting_phone',
+      });
+  }
+}
+
+        const pendingAlternativeSelection =
+      this.pendingAlternativeSelections.get(sessionId);
+
+    if (pendingAlternativeSelection?.products?.length) {
+
+        console.log(
+  'ALTERNATIVE_SELECTION:',
+  cleanMessage,
+  pendingAlternativeSelection?.products?.length,
+);
+
+                  const selectedNumber = Number(cleanMessage.replace(/\D/g, ''));
+      const selectedProduct: any =
+        selectedNumber > 0
+          ? pendingAlternativeSelection.products[selectedNumber - 1] || null
+          : pendingAlternativeSelection.products.find((p) => {
+              const productName = String(p.name || '').toLowerCase();
+              return productName && cleanMessage.includes(productName);
+            }) || null;
+
+              console.log(
+          'ALTERNATIVE_PRODUCTS:',
+          JSON.stringify(pendingAlternativeSelection.products, null, 2),
+        );
+
+        console.log(
+          'ALTERNATIVE_SELECTED_PRODUCT:',
+          JSON.stringify(selectedProduct, null, 2),
+        );
+
+      if (selectedProduct) {
+        this.pendingAlternativeSelections.delete(sessionId);
+
+                  const quantity = pendingAlternativeSelection.quantity || 1;
+          const warehouse = pendingAlternativeSelection.warehouse;
+          const total = (selectedProduct.price || 0) * quantity;
+
+          const clientWarehouses = [
+            { name: 'Север', stock: selectedProduct.skotnoeStock ?? 0 },
+            { name: 'Марьино', stock: selectedProduct.lomonosovStock ?? 0 },
+            { name: 'Рощино', stock: selectedProduct.roshinoStock ?? 0 },
+            { name: 'Ладога', stock: selectedProduct.ladogaStock ?? 0 },
+          ];
+
+          const bestClientWarehouse = clientWarehouses.reduce((best, current) =>
+            current.stock > best.stock ? current : best,
+          );
+
+          const selectedWarehouse = warehouse;
+          const selectedStock = this.getWarehouseStock(selectedProduct, selectedWarehouse) ?? 0;
+          const hasEnoughStock = selectedStock >= quantity;
+
+        const newPendingOrder = {
+          phone: undefined,
+          clientName: undefined,
+          source: meta?.vkPeerId ? 'vk' : 'chat',
+          vkPeerId: meta?.vkPeerId,
+          aiSummary: `[Категория: Заказ] ${pendingAlternativeSelection.originalMessage}`,
+          productInterest: pendingAlternativeSelection.originalMessage,
+          productId: selectedProduct.id,
+          productName: selectedProduct.name,
+          productPrice: selectedProduct.price,
+          productUnit: selectedProduct.unit,
+          requestedQuantity: quantity,
+                      bestWarehouse: selectedWarehouse,
+            availableQuantity: selectedStock,
+            budget: total,
+            needsPhone: hasEnoughStock,
+            needsStockDecision: !hasEnoughStock,
+          warehouseStock: {
+            volhov: selectedProduct.volhovStock ?? 0,
+            sever: selectedProduct.skotnoeStock ?? 0,
+            marino: selectedProduct.lomonosovStock ?? 0,
+            roshino: selectedProduct.roshinoStock ?? 0,
+            ladoga: selectedProduct.ladogaStock ?? 0,
+          },
+          items: [
+            {
+              productId: selectedProduct.id,
+              productName: selectedProduct.name,
+              productPrice: selectedProduct.price,
+              productUnit: selectedProduct.unit,
+              requestedQuantity: quantity,
+                              bestWarehouse: selectedWarehouse,
+                availableQuantity: selectedStock,
+              warehouseStock: {
+                volhov: selectedProduct.volhovStock ?? 0,
+                sever: selectedProduct.skotnoeStock ?? 0,
+                marino: selectedProduct.lomonosovStock ?? 0,
+                roshino: selectedProduct.roshinoStock ?? 0,
+                ladoga: selectedProduct.ladogaStock ?? 0,
+              },
+              total,
+            },
+          ],
+        };
+
+          if (!warehouse) {
+            newPendingOrder.bestWarehouse = undefined;
+            newPendingOrder.availableQuantity = undefined;
+            newPendingOrder.needsPhone = false;
+            newPendingOrder.needsStockDecision = true;
+
+            if (Array.isArray(newPendingOrder.items) && newPendingOrder.items[0]) {
+              newPendingOrder.items[0].bestWarehouse = undefined;
+              newPendingOrder.items[0].availableQuantity = undefined;
+            }
+
+            this.pendingOrders.set(sessionId, newPendingOrder);
+
+            const warehousesText = clientWarehouses
+              .map(
+                (item) =>
+                  `📍 ${item.name} — ${item.stock} ${this.formatUnit(selectedProduct.unit || 'шт')}`,
+              )
+              .join('\n');
+
+            const warehouseKeyboard = meta?.vkPeerId
+              ? {
+                  one_time: true,
+                  buttons: clientWarehouses
+                    .filter((item) => item.stock > 0)
+                    .map((item) => [
+                      {
+                        action: {
+                          type: 'text',
+                          label: `📍 ${item.name} — ${item.stock} ${this.formatUnit(selectedProduct.unit || 'шт')}`,
+                          payload: JSON.stringify({
+                            action: 'select_warehouse',
+                            warehouse: item.name,
+                          }),
+                        },
+                        color: item.stock >= quantity ? 'positive' : 'secondary',
+                      },
+                    ]),
+                }
+              : undefined;
+
+            const response =
+              `Выбрали: ${selectedProduct.name}\n` +
+              `Нужно: ${quantity} ${this.formatUnit(selectedProduct.unit || 'шт')}\n\n` +
+              `Остатки по точкам:\n${warehousesText}\n\n` +
+              'Выберите магазин для самовывоза.';
+
+            return this.saveAndReturn(sessionId, response, {
+              userMessage: message,
+              sessionId,
+              response,
+              products: [selectedProduct],
+              lead: null,
+              keyboard: warehouseKeyboard,
+              source: 'alternative_selected_choose_warehouse',
+            });
+          }
+
+        this.pendingOrders.set(sessionId, newPendingOrder);
+
+                  if (!hasEnoughStock) {
+            const shortage = Math.max(0, quantity - selectedStock);
+
+                          const shortageKeyboard = meta?.vkPeerId
+                ? {
+                    one_time: true,
+                    buttons: [
+                      [
+                        {
+                          action: {
+                            type: 'text',
+                            label: '✅ Оформить доступное количество',
+                            payload: JSON.stringify({
+                              action: 'available_stock',
+                            }),
+                          },
+                          color: 'positive',
+                        },
+                      ],
+                      [
+                        {
+                          action: {
+                            type: 'text',
+                            label: '📦 Уточнить срок поставки',
+                            payload: JSON.stringify({
+                              action: 'supply_request',
+                            }),
+                          },
+                          color: 'primary',
+                        },
+                      ],
+                    ],
+                  }
+                : undefined;
+
+                          const warehouseStockText =
+                `Остатки по точкам:\n` +
+                `📍 Север — ${selectedProduct.skotnoeStock ?? 0} ${this.formatUnit(selectedProduct.unit || 'шт')}\n` +
+                `📍 Марьино — ${selectedProduct.lomonosovStock ?? 0} ${this.formatUnit(selectedProduct.unit || 'шт')}\n` +
+                `📍 Рощино — ${selectedProduct.roshinoStock ?? 0} ${this.formatUnit(selectedProduct.unit || 'шт')}\n` +
+                `📍 Ладога — ${selectedProduct.ladogaStock ?? 0} ${this.formatUnit(selectedProduct.unit || 'шт')}`;
+
+
+const response =
+  `Выбрали: ${selectedProduct.name}\n` +
+  `Нужно: ${quantity} ${this.formatUnit(selectedProduct.unit || 'шт')}\n` +
+  `В наличии: ${selectedStock} ${this.formatUnit(selectedProduct.unit || 'шт')}\n` +
+  `Не хватает: ${shortage} ${this.formatUnit(selectedProduct.unit || 'шт')}\n\n` +
+  `${warehouseStockText}\n\n` +
+  'Оформить доступное количество или уточнить срок поставки недостающего товара?';
+
+            return this.saveAndReturn(sessionId, response, {
+              userMessage: message,
+              sessionId,
+              response,
+              products: [selectedProduct],
+              lead: null,
+                              keyboard: shortageKeyboard,
+              source: 'alternative_selected_stock_shortage',
+            });
+          }
+
+        const response =
+          `Выбрали: ${selectedProduct.name}\n` +
+          `Количество: ${quantity} ${this.formatUnit(selectedProduct.unit || 'шт')}\n` +
+          (warehouse ? `Магазин: ${warehouse}\n` : '') +
+          `Цена: ${selectedProduct.price} ₽/${this.formatUnit(selectedProduct.unit || 'шт')}\n` +
+          `Сумма: ${total.toLocaleString('ru-RU')} ₽\n\n` +
+          'Укажите, пожалуйста, номер телефона для оформления заявки.';
+
+        return this.saveAndReturn(sessionId, response, {
+          userMessage: message,
+          sessionId,
+          response,
+          products: [selectedProduct],
+          lead: null,
+          source: 'alternative_selected_waiting_phone',
+        });
+      }
+    }
 
     if (/отменить|отмена|cancel_order/i.test(cleanMessage)) {
   this.pendingOrders.delete(sessionId);
@@ -633,6 +1196,26 @@ const quickMultiLines =
 
 console.log('ORDER LINES WITHOUT PHONE RAW:', quickMultiLines);
 
+if (!earlyPhone && quickMultiLines.length === 1) {
+  console.log('SINGLE LINE PRODUCT CHECK:', quickMultiLines[0]);
+
+  const dimensions = this.extractDimensions(quickMultiLines[0]);
+
+  if (dimensions) {
+    const relaxedProducts = await this.productsService.findByDimensions(
+      dimensions.width,
+      dimensions.height,
+      dimensions.length,
+      quickMultiLines[0].replace(/сорт\s*[ааввээ]|экстра/gi, '').trim(),
+    );
+
+    console.log(
+      'SINGLE LINE RELAXED PRODUCTS:',
+      relaxedProducts.map((p) => p.name),
+    );
+  }
+}
+
 if (!earlyPhone && quickMultiLines.length > 1) {
   const commonWarehouse = this.extractWarehouse(earlyMessageWithoutPhone);
 
@@ -667,9 +1250,67 @@ console.log('MULTI QUANTITY:', lineQuantity);
 console.log('MULTI FOUND:', foundProducts.map((p) => p.name));
 console.log('MULTI PICKED:', lineProduct?.name);
 
-      if (!lineProduct) {
-        return null;
-      }
+              if (!lineProduct) {
+
+                const relaxedProducts = await this.productsService.findByDimensions(
+  lineDimensions.width,
+  lineDimensions.height,
+  lineDimensions.length,
+  line.replace(/сорт\s*[ааввээ]|экстра/gi, '').trim(),
+);
+
+let alternativeProducts =
+  relaxedProducts.length > 0
+    ? relaxedProducts
+    : foundProducts;
+
+if (alternativeProducts.length === 0) {
+  const wider3000Products = await this.productsService.findByDimensions(
+    1200,
+    lineDimensions.height,
+    3000,
+    line.replace(/сорт\s*[ааввээ]|экстра/gi, '').trim(),
+  );
+
+  const beautifulAProducts = await this.productsService.findByDimensions(
+    900,
+    lineDimensions.height,
+    2900,
+    line.replace(/сорт\s*[ааввээ]|экстра/gi, '').trim(),
+  );
+
+  alternativeProducts = [
+    ...wider3000Products,
+    ...beautifulAProducts,
+  ];
+}
+
+          return {
+            missing: true,
+            originalLine: line,
+            requestedQuantity: lineQuantity || undefined,
+            bestWarehouse: lineWarehouse || undefined,
+            alternatives: alternativeProducts
+  .filter((p) => {
+    const name = String(p.name || '').toLowerCase();
+    return name.includes('щит мебельный') || name.includes('мебельный щит');
+  })
+  .slice(0, 3)
+  .map((p) => ({
+              productId: p.id,
+              productName: p.name,
+              productPrice: p.price,
+              productUnit: p.unit,
+              warehouseStock: {
+                volhov: p.volhovStock ?? 0,
+                sever: p.skotnoeStock ?? 0,
+                marino: p.lomonosovStock ?? 0,
+                roshino: p.roshinoStock ?? 0,
+                ladoga: p.ladogaStock ?? 0,
+              },
+            })),
+          };
+        }
 
       const premiumAlternative = foundProducts.find(
   (p) =>
@@ -712,6 +1353,77 @@ return {
       (item): item is NonNullable<typeof item> => item !== null,
     ),
   );
+
+      const missingItems = orderItems.filter((item: any) => item.missing);
+    const foundItems = orderItems.filter((item: any) => !item.missing);
+
+    if (missingItems.length > 0) {
+      const missingText = missingItems
+        .map((item: any, index) => {
+          const alternativesText = item.alternatives?.length
+            ? item.alternatives
+                .map(
+                  (alt, altIndex) =>
+                    `${altIndex + 1}. ${alt.productName}\n` +
+                    `Цена: ${alt.productPrice} ₽/${this.formatUnit(alt.productUnit || 'шт')}`,
+                )
+                .join('\n\n')
+            : 'Похожих вариантов не нашёл.';
+
+          return (
+            `Позиция ${index + 1}: ${item.originalLine}\n` +
+            `Нужно: ${item.requestedQuantity || 0} шт\n\n` +
+            `Похожие варианты:\n${alternativesText}`
+          );
+        })
+        .join('\n\n');
+
+              this.pendingMultiAlternativeSelections.set(sessionId, {
+        missingItems,
+        foundItems,
+                  originalMessage: message,
+        currentIndex: 0,
+      });
+
+      const firstItem = missingItems[0];
+
+      const keyboard = meta?.vkPeerId
+        ? {
+            one_time: true,
+        
+            buttons: [
+              ...(firstItem.alternatives || []).map((alt: any, index: number) => [
+                {
+                  action: {
+                    type: 'text',
+                    label: `${index + 1}. ${alt.productName}`,
+                    payload: JSON.stringify({
+                      action: 'multi_alternative_select',
+                      index,
+                    }),
+                  },
+                  color: 'primary',
+                },
+              ]),
+            ],
+          }
+        : undefined;
+
+            const response =
+        `Не нашёл точный товар для позиции 1:\n\n` +
+        `${firstItem.originalLine}\n\n` +
+        `Выберите подходящий вариант кнопкой ниже.`;
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        response,
+        products: [],
+        lead: null,
+keyboard,
+source: 'multi_item_missing_with_alternatives',
+      });
+    }
 
   if (orderItems.length > 1) {
     const formatStock = (stock?: any) =>
@@ -768,7 +1480,7 @@ const productsText = orderItems
   }
 }
 
-if (earlyPhone && orderLinesWithPhone.length > 0) {
+if (!pendingOrder?.needsPhone && earlyPhone && orderLinesWithPhone.length > 0) {
   const commonWarehouse = this.extractWarehouse(earlyMessageWithoutPhone);
 
   const orderItems = await Promise.all(
@@ -1025,19 +1737,108 @@ if (
       }
     : undefined;
 
-  const productsText = (pendingOrder.items || [])
-    .map(
-      (item, index) =>
+    const shortageItems = (pendingOrder.items || []).filter((item) => {
+  const quantity = item.requestedQuantity || 0;
+  const stock =
+    item.bestWarehouse && item.warehouseStock
+      ? this.getStockFromWarehouseObject(
+          item.warehouseStock,
+          item.bestWarehouse,
+        )
+      : null;
+
+  return stock !== null && quantity > stock;
+});
+
+    const productsText = (pendingOrder.items || [])
+    .map((item, index) => {
+      const quantity = item.requestedQuantity || 0;
+      const unit = this.formatUnit(item.productUnit || 'шт');
+      const warehouse = item.bestWarehouse;
+      const stock =
+        warehouse && item.warehouseStock
+          ? this.getStockFromWarehouseObject(item.warehouseStock, warehouse)
+          : null;
+      const shortage =
+        stock !== null ? Math.max(0, quantity - stock) : 0;
+
+      return (
         `${index + 1}. ${item.productName}\n` +
-        `Количество: ${item.requestedQuantity || 0} ${this.formatUnit(
-          item.productUnit || 'шт',
-        )}\n` +
-        `Сумма: ${(
-          (item.productPrice || 0) *
-          (item.requestedQuantity || 0)
-        ).toLocaleString('ru-RU')} ₽`,
-    )
+        `Количество: ${quantity} ${unit}\n` +
+        (warehouse ? `Магазин: ${warehouse}\n` : '') +
+        (stock !== null ? `В наличии: ${stock} ${unit}\n` : '') +
+        (shortage > 0 ? `Не хватает: ${shortage} ${unit}\n` : '') +
+        `Сумма: ${((item.productPrice || 0) * quantity).toLocaleString('ru-RU')} ₽`
+      );
+    })
     .join('\n\n');
+
+        if (shortageItems.length > 0 && !pendingOrder.shortageAccepted) {
+      const shortageText = shortageItems
+        .map((item, index) => {
+          const quantity = item.requestedQuantity || 0;
+          const unit = this.formatUnit(item.productUnit || 'шт');
+          const stock = this.getStockFromWarehouseObject(
+            item.warehouseStock,
+            item.bestWarehouse,
+          );
+          const shortage = Math.max(0, quantity - (stock || 0));
+
+          return (
+            `${index + 1}. ${item.productName}\n` +
+            `Нужно: ${quantity} ${unit}\n` +
+            `В наличии: ${stock || 0} ${unit}\n` +
+            `Не хватает: ${shortage} ${unit}`
+          );
+        })
+        .join('\n\n');
+
+      const shortageDecisionKeyboard = meta?.vkPeerId
+        ? {
+            one_time: true,
+            buttons: [
+              [
+                {
+                  action: {
+                    type: 'text',
+                    label: '✅ Да, оформить заявку',
+                    payload: JSON.stringify({
+                      action: 'accept_shortage',
+                    }),
+                  },
+                  color: 'positive',
+                },
+              ],
+              [
+                {
+                  action: {
+                    type: 'text',
+                    label: '✏️ Подобрать замену',
+                    payload: JSON.stringify({
+                      action: 'change_shortage',
+                    }),
+                  },
+                  color: 'primary',
+                },
+              ],
+            ],
+          }
+        : undefined;
+
+      const response =
+        `⚠️ По выбранным товарам есть нехватка:\n\n${shortageText}\n\n` +
+        `Продолжить оформление заявки?`;
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: pendingOrder.productInterest || message,
+        sessionId,
+        response,
+        products: [],
+        lead: null,
+        keyboard: shortageDecisionKeyboard,
+        source: 'pending_order_shortage_decision',
+      });
+    }
 
   const response =
     `Проверьте заказ:\n\n${productsText}\n\n` +
@@ -1814,6 +2615,89 @@ if (dimensionsForCheck) {
 
 similarProducts = productsByDimensions;
 
+const hasGradeInMessage =
+  /сорт\s*[авэ]|сорт\s*а|сорт\s*в|сорт\s*э|экстра|без сучков/i.test(message);
+
+const gradeOptions = productsByDimensions.filter((item) =>
+  /сорт\s*[авэ]|сорт\s*а|сорт\s*в|сорт\s*э|экстра/i.test(item.name),
+);
+
+const uniqueGrades = Array.from(
+  new Set(
+    gradeOptions
+      .map((item) => {
+        const name = item.name.toLowerCase();
+
+        if (name.includes('сорт э') || name.includes('экстра')) {
+          return 'Э';
+        }
+
+        if (name.includes('сорт а')) {
+          return 'А';
+        }
+
+        if (name.includes('сорт в')) {
+          return 'В';
+        }
+
+        return null;
+      })
+      .filter(Boolean),
+  ),
+);
+
+if (!hasGradeInMessage && uniqueGrades.length > 1) {
+  const gradeKeyboard = meta?.vkPeerId
+    ? {
+        one_time: true,
+        buttons: uniqueGrades.map((grade) => [
+          {
+            action: {
+              type: 'text',
+              label: `Сорт ${grade}`,
+              payload: JSON.stringify({
+                action: 'select_grade',
+                grade,
+              }),
+            },
+            color: 'secondary',
+          },
+        ]),
+      }
+    : undefined;
+
+  const optionsText = gradeOptions
+    .map(
+      (item, index) =>
+        `${index + 1}. ${item.name}\n` +
+        `Цена: ${item.price} ₽/${this.formatUnit(item.unit)}\n` +
+        `Остаток: ${item.stock} ${this.formatUnit(item.unit)}`,
+    )
+    .join('\n\n');
+
+  const response =
+    'Нашёл несколько вариантов этого размера с разными сортами:\n\n' +
+    optionsText +
+    '\n\nУточните, пожалуйста, какой сорт нужен.';
+
+        this.pendingGradeSelections.set(sessionId, {
+      products: gradeOptions,
+      originalMessage: message,
+      quantity: this.extractQuantity(message) || 1,
+      warehouse: this.extractWarehouse(message),
+    });
+
+  return this.saveAndReturn(sessionId, response, {
+    userMessage: message,
+    sessionId,
+    response,
+    products: gradeOptions,
+    lead: null,
+    keyboard: gradeKeyboard,
+    source: 'need_grade_clarification_before_order',
+  });
+}
+
 productFromSearch = this.pickBestProduct(
   productsByDimensions,
   message,
@@ -1972,9 +2856,80 @@ if (
   }
 }
 
+console.log('RELAXED SINGLE CHECK:', dimensions, message);
+
+if (dimensions) {
+  const relaxedProducts = await this.productsService.findByDimensions(
+  dimensions.width,
+  dimensions.height,
+  dimensions.length,
+  message.replace(/сорт\s*[ааввээ]|экстра/gi, '').trim(),
+);
+
+console.log(
+  'RELAXED SINGLE FOUND:',
+  relaxedProducts.map((p) => p.name),
+);
+
+  const relaxedAlternatives = relaxedProducts.filter((p) => {
+    const name = String(p.name || '').toLowerCase();
+    return name.includes('щит мебельный') || name.includes('мебельный щит');
+  });
+
+  if (relaxedAlternatives.length > 0) {
+    const relaxedText = relaxedAlternatives
+      .slice(0, 3)
+      .map((p, index) => {
+        const unit = this.formatUnit(p.unit);
+        const stock = this.getWarehouseStock(
+          p,
+          this.extractWarehouse(message),
+        );
+
+        return (
+          `${index + 1}. ${p.name}\n` +
+          `💰 Цена: ${p.price} ₽/${unit}\n` +
+          `📦 Остаток: ${stock !== null ? stock : p.stock} ${unit}`
+        );
+      })
+      .join('\n\n');
+
+    const response =
+      'Точного товара с таким сортом не нашёл.\n\n' +
+      'Могу предложить такие варианты этого размера:\n\n' +
+      relaxedText +
+      '\n\nЕсли подходит один из вариантов — напишите его номер или название.';
+
+    this.pendingAlternativeSelections.set(sessionId, {
+      products: relaxedAlternatives.slice(0, 3),
+      originalMessage: message,
+      quantity: this.extractQuantity(message) || 1,
+      warehouse: this.extractWarehouse(message),
+    });
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: relaxedAlternatives.slice(0, 3),
+      lead: null,
+      source: 'single_item_relaxed_grade_alternatives',
+    });
+  }
+}
+
 const response =
   'Точного товара с таким сортом или размером не нашёл в каталоге.' +
   alternativesText;
+
+    if (similarProducts.length > 0) {
+    this.pendingAlternativeSelections.set(sessionId, {
+      products: similarProducts.slice(0, 3),
+      originalMessage: message,
+      quantity: this.extractQuantity(message) || 1,
+      warehouse: this.extractWarehouse(message),
+    });
+  }
 
   return this.saveAndReturn(sessionId, response, {
     userMessage: message,
@@ -2291,15 +3246,39 @@ keyboard: reviewKeyboard,
         }
       }
 
-      if (lowerMessage.includes('сорт а')) {
-        const aProduct = products.find((p) =>
-          p.name.toLowerCase().includes('сорт а'),
-        );
+              if (lowerMessage.includes('сорт а')) {
+          const aProduct = products.find((p) =>
+            p.name.toLowerCase().includes('сорт а'),
+          );
 
-        if (aProduct) {
-          products = [aProduct];
+          if (aProduct) {
+            products = [aProduct];
+          } else {
+            const options = products.slice(0, 5);
+
+            const response =
+              'Точного товара с сортом А не нашёл. Нашёл похожие варианты:\n\n' +
+              options
+                .map(
+                  (product, index) =>
+                    `${index + 1}. ${product.name}\n` +
+                    `Цена: ${product.price} ₽/${this.formatUnit(product.unit)}\n` +
+                    `Север: ${product.skotnoeStock} ${this.formatUnit(product.unit)}`,
+                )
+                .join('\n\n') +
+              '\n\nЕсли подходит один из вариантов — напишите его номер.';
+
+            return this.saveAndReturn(sessionId, response, {
+              userMessage: message,
+              sessionId,
+              searchQuery,
+              response,
+              products: options,
+              lead: null,
+              source: 'rules_requested_grade_a_not_found',
+            });
+          }
         }
-      }
 
       if (products.length > 1) {
         const options = products.slice(0, 5);
@@ -2439,7 +3418,45 @@ ${productsContext}
       });
     }
 
-    const product = products[0];
+          const product = this.pickBestProduct(products, message);
+
+      if (!product) {
+        const options = products.slice(0, 5);
+
+        const response =
+          'Точного товара по вашему запросу не нашёл. Нашёл похожие варианты:\n\n' +
+          options
+            .map(
+              (item, index) =>
+               `${index + 1}. ${item.name}\n` +
+`Цена: ${item.price} ₽/${this.formatUnit(item.unit)}\n` +
+`Остатки по точкам:\n` +
+`📍 Север — ${item.skotnoeStock ?? 0} ${this.formatUnit(item.unit)}\n` +
+`📍 Марьино — ${item.lomonosovStock ?? 0} ${this.formatUnit(item.unit)}\n` +
+`📍 Рощино — ${item.roshinoStock ?? 0} ${this.formatUnit(item.unit)}\n` +
+`📍 Ладога — ${item.ladogaStock ?? 0} ${this.formatUnit(item.unit)}`, 
+            )
+            .join('\n\n') +
+          '\n\nЕсли подходит один из вариантов — напишите его номер.';
+
+        this.pendingAlternativeSelections.set(sessionId, {
+          products: options,
+          quantity,
+                    warehouse: this.extractWarehouse(message),
+          originalMessage: message,
+          source: 'grade_not_found',
+        });
+
+        return this.saveAndReturn(sessionId, response, {
+          userMessage: message,
+          sessionId,
+          searchQuery,
+          response,
+          products: options,
+          lead: null,
+          source: 'rules_product_grade_not_found',
+        });
+      }
 
     let lead: Lead | null = null;
 
@@ -2742,6 +3759,24 @@ ${productsContext}
   if (normalized.includes('марьино')) return product.lomonosovStock ?? 0;
   if (normalized.includes('рощино')) return product.roshinoStock ?? 0;
   if (normalized.includes('ладога')) return product.ladogaStock ?? 0;
+
+  return null;
+}
+
+private getStockFromWarehouseObject(
+  stock: any,
+  warehouse?: string,
+): number | null {
+  if (!stock || !warehouse) {
+    return null;
+  }
+
+  const normalized = warehouse.toLowerCase();
+
+  if (normalized.includes('север')) return stock.sever ?? 0;
+  if (normalized.includes('марьино')) return stock.marino ?? 0;
+  if (normalized.includes('рощино')) return stock.roshino ?? 0;
+  if (normalized.includes('ладога')) return stock.ladoga ?? 0;
 
   return null;
 }
