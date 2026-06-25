@@ -482,13 +482,13 @@ const selectedNumber = selectedNumberMatch
 
           if (!warehouse) {
             newPendingOrder.bestWarehouse = undefined;
-            newPendingOrder.availableQuantity = undefined;
+            newPendingOrder.availableQuantity = 0;
             newPendingOrder.needsPhone = false;
             newPendingOrder.needsStockDecision = true;
 
             if (Array.isArray(newPendingOrder.items) && newPendingOrder.items[0]) {
               newPendingOrder.items[0].bestWarehouse = undefined;
-              newPendingOrder.items[0].availableQuantity = undefined;
+              newPendingOrder.items[0].availableQuantity = 0;
             }
 
             this.pendingOrders.set(sessionId, newPendingOrder);
@@ -768,41 +768,102 @@ if (
             ? stock.ladoga || 0
             : 0;
 
-  const finalQuantity =
-    selectedStock >= requestedQuantity ? requestedQuantity : selectedStock;
+      if (selectedStock >= requestedQuantity) {
+      pendingOrder.bestWarehouse = selectedWarehouse;
+      pendingOrder.availableQuantity = selectedStock;
+      pendingOrder.requestedQuantity = requestedQuantity;
+      pendingOrder.budget = (pendingOrder.productPrice || 0) * requestedQuantity;
+      pendingOrder.needsStockDecision = false;
+      pendingOrder.needsPhone = true;
 
-  pendingOrder.bestWarehouse = selectedWarehouse;
-  pendingOrder.availableQuantity = selectedStock;
-  pendingOrder.requestedQuantity = finalQuantity;
-  pendingOrder.budget = (pendingOrder.productPrice || 0) * finalQuantity;
-  pendingOrder.needsStockDecision = false;
-  pendingOrder.needsPhone = true;
+      if (Array.isArray(pendingOrder.items) && pendingOrder.items[0]) {
+        pendingOrder.items[0].bestWarehouse = selectedWarehouse;
+        pendingOrder.items[0].availableQuantity = selectedStock;
+        pendingOrder.items[0].requestedQuantity = requestedQuantity;
+        pendingOrder.items[0].total =
+          (pendingOrder.items[0].productPrice || 0) * requestedQuantity;
+      }
 
-  if (Array.isArray(pendingOrder.items) && pendingOrder.items[0]) {
-    pendingOrder.items[0].bestWarehouse = selectedWarehouse;
-    pendingOrder.items[0].availableQuantity = selectedStock;
-    pendingOrder.items[0].requestedQuantity = finalQuantity;
-    pendingOrder.items[0].total =
-      (pendingOrder.items[0].productPrice || 0) * finalQuantity;
-  }
+      this.pendingOrders.set(sessionId, pendingOrder);
 
-  this.pendingOrders.set(sessionId, pendingOrder);
-
-  const response =
-    selectedStock >= requestedQuantity
-      ? `Отлично, в магазине ${selectedWarehouse} доступно ${selectedStock} ${unit}. Оформим ${requestedQuantity} ${unit}.\n\n` +
-        'Укажите, пожалуйста, номер телефона для оформления заявки.'
-      : `В магазине ${selectedWarehouse} доступно ${selectedStock} ${unit}. Оформим доступное количество: ${finalQuantity} ${unit}.\n\n` +
+      const response =
+        `Отлично, в магазине ${selectedWarehouse} доступно ${selectedStock} ${unit}. Оформим ${requestedQuantity} ${unit}.\n\n` +
         'Укажите, пожалуйста, номер телефона для оформления заявки.';
 
-  return this.saveAndReturn(sessionId, response, {
-    userMessage: message,
-    sessionId,
-    response,
-    products: [],
-    lead: null,
-    source: 'stock_shortage_selected_warehouse_waiting_phone',
-  });
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        response,
+        products: [],
+        lead: null,
+        source: 'stock_selected_warehouse_waiting_phone',
+      });
+    }
+
+    const shortage = Math.max(0, requestedQuantity - selectedStock);
+
+    pendingOrder.bestWarehouse = selectedWarehouse;
+    pendingOrder.availableQuantity = selectedStock;
+    pendingOrder.needsStockDecision = true;
+    pendingOrder.needsPhone = false;
+
+    if (Array.isArray(pendingOrder.items) && pendingOrder.items[0]) {
+      pendingOrder.items[0].bestWarehouse = selectedWarehouse;
+      pendingOrder.items[0].availableQuantity = selectedStock;
+      pendingOrder.items[0].requestedQuantity = requestedQuantity;
+      pendingOrder.items[0].total =
+        (pendingOrder.items[0].productPrice || 0) * requestedQuantity;
+    }
+
+    this.pendingOrders.set(sessionId, pendingOrder);
+
+    const shortageKeyboard = meta?.vkPeerId
+      ? {
+          one_time: true,
+          buttons: [
+            [
+              {
+                action: {
+                  type: 'text',
+                  label: `✅ Оформить доступное количество`,
+                  payload: JSON.stringify({
+                    action: 'available_stock',
+                  }),
+                },
+                color: 'positive',
+              },
+            ],
+            [
+              {
+                action: {
+                  type: 'text',
+                  label: '📦 Уточнить срок поставки',
+                  payload: JSON.stringify({
+                    action: 'supply_request',
+                  }),
+                },
+                color: 'primary',
+              },
+            ],
+          ],
+        }
+      : undefined;
+
+    const response =
+      `В магазине ${selectedWarehouse} доступно ${selectedStock} ${unit}.\n` +
+      `Нужно: ${requestedQuantity} ${unit}\n` +
+      `Не хватает: ${shortage} ${unit}.\n\n` +
+      'Оформить доступное количество или уточнить срок поставки недостающего товара?';
+
+    return this.saveAndReturn(sessionId, response, {
+      userMessage: message,
+      sessionId,
+      response,
+      products: [],
+      lead: null,
+      keyboard: shortageKeyboard,
+      source: 'stock_selected_warehouse_shortage_decision',
+    });
 }
 
 if (
