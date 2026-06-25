@@ -61,6 +61,215 @@ if (
 
     const pendingOrder = this.pendingOrders.get(sessionId);
 
+        if (
+      pendingOrder?.needsWarehouseSelection &&
+      /север|марьино|рощино|ладога/i.test(cleanMessage)
+    ) {
+      const selectedWarehouse = this.extractWarehouse(message);
+
+      const items = Array.isArray(pendingOrder.items)
+        ? pendingOrder.items
+        : [];
+
+      const updatedItems = items.map((item) => {
+        const stock = this.getStockFromWarehouseObject(
+          item.warehouseStock,
+          selectedWarehouse || '',
+        );
+
+        return {
+          ...item,
+          bestWarehouse: selectedWarehouse,
+          availableQuantity: stock || 0,
+        };
+      });
+
+      const shortageItems = updatedItems.filter(
+        (item) => (item.requestedQuantity || 0) > (item.availableQuantity || 0),
+      );
+
+      const totalBudget = updatedItems.reduce(
+        (sum, item) =>
+          sum + (item.productPrice || 0) * (item.requestedQuantity || 0),
+        0,
+      );
+
+      pendingOrder.items = updatedItems;
+      pendingOrder.bestWarehouse = selectedWarehouse;
+      pendingOrder.needsWarehouseSelection = false;
+      pendingOrder.budget = totalBudget;
+
+      if (shortageItems.length === 0) {
+        pendingOrder.needsPhone = true;
+        pendingOrder.needsStockDecision = false;
+
+        this.pendingOrders.set(sessionId, pendingOrder);
+
+        const productsText = updatedItems
+          .map(
+            (item, index) =>
+              `${index + 1}. ${item.productName}\n` +
+              `Количество: ${item.requestedQuantity || 0} ${this.formatUnit(item.productUnit || 'шт')}\n` +
+              `Магазин: ${selectedWarehouse}\n` +
+              `В наличии: ${item.availableQuantity || 0} ${this.formatUnit(item.productUnit || 'шт')}\n` +
+              `Сумма: ${((item.productPrice || 0) * (item.requestedQuantity || 0)).toLocaleString('ru-RU')} ₽`,
+          )
+          .join('\n\n');
+
+        const response =
+          `Отлично, в магазине ${selectedWarehouse} все позиции доступны.\n\n` +
+          `${productsText}\n\n` +
+          `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
+          'Укажите, пожалуйста, номер телефона для оформления заявки.';
+
+        return this.saveAndReturn(sessionId, response, {
+          userMessage: message,
+          sessionId,
+          response,
+          products: [],
+          lead: null,
+          source: 'multi_order_warehouse_selected_waiting_phone',
+        });
+      }
+
+      pendingOrder.needsPhone = false;
+      pendingOrder.needsStockDecision = true;
+
+      this.pendingOrders.set(sessionId, pendingOrder);
+
+      const shortageText = updatedItems
+        .map((item, index) => {
+          const shortage = Math.max(
+            0,
+            (item.requestedQuantity || 0) - (item.availableQuantity || 0),
+          );
+
+          return (
+            `${index + 1}. ${item.productName}\n` +
+            `Нужно: ${item.requestedQuantity || 0} ${this.formatUnit(item.productUnit || 'шт')}\n` +
+            `Магазин: ${selectedWarehouse}\n` +
+            `В наличии: ${item.availableQuantity || 0} ${this.formatUnit(item.productUnit || 'шт')}` +
+            (shortage > 0
+              ? `\nНе хватает: ${shortage} ${this.formatUnit(item.productUnit || 'шт')}`
+              : '')
+          );
+        })
+        .join('\n\n');
+
+      const multiShortageKeyboard = meta?.vkPeerId
+        ? {
+            one_time: true,
+            buttons: [
+              [
+                {
+                  action: {
+                    type: 'text',
+                    label: '✅ Да, оформить заявку',
+                    payload: JSON.stringify({
+                      action: 'accept_multi_shortage',
+                    }),
+                  },
+                  color: 'positive',
+                },
+              ],
+              [
+                {
+                  action: {
+                    type: 'text',
+                    label: '📍 Выбрать другой магазин',
+                    payload: JSON.stringify({
+                      action: 'change_order_warehouse',
+                    }),
+                  },
+                  color: 'primary',
+                },
+              ],
+              [
+                {
+                  action: {
+                    type: 'text',
+                    label: '❌ Отменить',
+                    payload: JSON.stringify({
+                      action: 'cancel_order',
+                    }),
+                  },
+                  color: 'negative',
+                },
+              ],
+            ],
+          }
+        : undefined;
+
+      const response =
+        `Проверил наличие в магазине ${selectedWarehouse}:\n\n` +
+        `${shortageText}\n\n` +
+        'По некоторым позициям есть нехватка. Оформить заявку с уточнением срока поставки недостающего товара?';
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        response,
+        products: [],
+        lead: null,
+                keyboard: multiShortageKeyboard,
+        source: 'multi_order_warehouse_selected_shortage',
+      });
+    }
+
+    if (
+      pendingOrder?.needsStockDecision &&
+      /да|оформить|accept_multi_shortage/i.test(cleanMessage) &&
+      Array.isArray(pendingOrder.items) &&
+      pendingOrder.items.length > 1
+    ) {
+      pendingOrder.needsStockDecision = false;
+      pendingOrder.needsPhone = true;
+      pendingOrder.supplyRequest = true;
+
+      const totalBudget = pendingOrder.items.reduce(
+        (sum, item) =>
+          sum + (item.productPrice || 0) * (item.requestedQuantity || 0),
+        0,
+      );
+
+      pendingOrder.budget = totalBudget;
+
+      this.pendingOrders.set(sessionId, pendingOrder);
+
+      const productsText = pendingOrder.items
+        .map((item, index) => {
+          const unit = this.formatUnit(item.productUnit || 'шт');
+          const quantity = item.requestedQuantity || 0;
+          const available = item.availableQuantity || 0;
+          const shortage = Math.max(0, quantity - available);
+
+          return (
+            `${index + 1}. ${item.productName}\n` +
+            `Количество: ${quantity} ${unit}\n` +
+            (item.bestWarehouse ? `Магазин: ${item.bestWarehouse}\n` : '') +
+            `В наличии: ${available} ${unit}\n` +
+            (shortage > 0 ? `Не хватает: ${shortage} ${unit}\n` : '') +
+            `Сумма: ${((item.productPrice || 0) * quantity).toLocaleString('ru-RU')} ₽`
+          );
+        })
+        .join('\n\n');
+
+      const response =
+        `Хорошо, оформим заявку с уточнением срока поставки недостающих позиций.\n\n` +
+        `${productsText}\n\n` +
+        `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
+        'Укажите, пожалуйста, номер телефона для связи.';
+
+      return this.saveAndReturn(sessionId, response, {
+        userMessage: message,
+        sessionId,
+        response,
+        products: [],
+        lead: null,
+        source: 'multi_shortage_accepted_waiting_phone',
+      });
+    }
+
         const pendingGradeSelection = this.pendingGradeSelections.get(sessionId);
 
     if (pendingGradeSelection?.products?.length) {
@@ -344,7 +553,8 @@ const selectedNumber = selectedNumberMatch
         warehouseStock: allItems[0]?.warehouseStock,
         bestWarehouse: allItems[0]?.bestWarehouse,
         budget: totalBudget,
-        needsPhone: true,
+                  needsPhone: false,
+          needsWarehouseSelection: true,
       };
 
       this.pendingMultiAlternativeSelections.delete(sessionId);
@@ -359,17 +569,70 @@ const selectedNumber = selectedNumberMatch
         )
         .join('\n\n');
 
-        const clearKeyboard = meta?.vkPeerId
-  ? {
-      one_time: true,
-      buttons: [],
-    }
-  : undefined;
+             const warehouseButtons = meta?.vkPeerId
+          ? {
+              one_time: true,
+              buttons: [
+                [
+                  {
+                    action: {
+                      type: 'text',
+                      label: '📍 Север',
+                      payload: JSON.stringify({
+                        action: 'select_order_warehouse',
+                        warehouse: 'Север',
+                      }),
+                    },
+                    color: 'primary',
+                  },
+                ],
+                [
+                  {
+                    action: {
+                      type: 'text',
+                      label: '📍 Марьино',
+                      payload: JSON.stringify({
+                        action: 'select_order_warehouse',
+                        warehouse: 'Марьино',
+                      }),
+                    },
+                    color: 'primary',
+                  },
+                ],
+                [
+                  {
+                    action: {
+                      type: 'text',
+                      label: '📍 Рощино',
+                      payload: JSON.stringify({
+                        action: 'select_order_warehouse',
+                        warehouse: 'Рощино',
+                      }),
+                    },
+                    color: 'primary',
+                  },
+                ],
+                [
+                  {
+                    action: {
+                      type: 'text',
+                      label: '📍 Ладога',
+                      payload: JSON.stringify({
+                        action: 'select_order_warehouse',
+                        warehouse: 'Ладога',
+                      }),
+                    },
+                    color: 'primary',
+                  },
+                ],
+              ],
+            }
+          : undefined;
 
-      const response =
-        `Выбраны варианты:\n\n${productsText}\n\n` +
-        `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
-        'Укажите, пожалуйста, номер телефона для оформления заявки.';
+        const response =
+          `Выбраны варианты:\n\n${productsText}\n\n` +
+          `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
+          'Выберите магазин самовывоза для всего заказа.';
 
       return this.saveAndReturn(sessionId, response, {
         userMessage: message,
@@ -377,8 +640,8 @@ const selectedNumber = selectedNumberMatch
         response,
         products: [],
         lead: null,
-        keyboard: clearKeyboard,
-        source: 'multi_alternatives_selected_waiting_phone',
+                  keyboard: warehouseButtons,
+          source: 'multi_alternatives_selected_waiting_warehouse',
       });
   }
 }
