@@ -204,4 +204,12 @@ export class LeadsService {
       id,
     };
   }
+  async updateAiSalesAnalysis(id: string, analysis: any) {
+    await this.leadsRepository.update(id, {
+      aiSalesAnalysis: analysis,
+    });
+
+    return analysis;
+  }
+
 }

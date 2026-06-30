@@ -108,6 +108,12 @@ orderNumber: string;
   })
   aiSummary: string;
 
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+  })
+  aiSalesAnalysis: any;
+
   @Column({ nullable: true })
   assignedManagerId: string;
 
