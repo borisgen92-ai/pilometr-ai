@@ -5,6 +5,14 @@ import { MessagesService } from './messages.service';
 export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
 
+
+  @Get()
+  getLatest(@Query('limit') limit?: string) {
+    return this.messagesService.getLatestMessages(
+      limit ? Number(limit) : 30,
+    );
+  }
+
   @Get(':sessionId')
   getMessages(
     @Param('sessionId') sessionId: string,

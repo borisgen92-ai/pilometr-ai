@@ -36,6 +36,9 @@ export class Lead {
   vkPeerId: string;
 
   @Column({ nullable: true })
+  sessionId: string;
+
+  @Column({ nullable: true })
   productInterest: string;
 
   @OneToMany(() => LeadItem, (item) => item.lead, { cascade: true })

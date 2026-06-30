@@ -1327,7 +1327,10 @@ if (
     source: 'review_confirmed_waiting_phone',
   });
 }
-  const lead = await this.leadsService.create(pendingOrder);
+  const lead = await this.leadsService.create({
+    ...pendingOrder,
+    sessionId,
+  });
 
   this.pendingOrders.delete(sessionId);
 
@@ -1469,6 +1472,7 @@ if (isConfirmationMessage && phoneFromHistoryForConfirmation) {
     }
 
     const lead = await this.leadsService.create({
+  sessionId,
       phone: phoneFromHistory,
       clientName: this.extractClientName(historyContext) || undefined,
       source: meta?.vkPeerId ? 'vk' : 'chat',
@@ -2029,6 +2033,7 @@ if (
 
   if (pendingOrder.supplyRequest) {
   const lead = await this.leadsService.create({
+  sessionId,
     ...pendingOrder,
     phone: earlyPhone,
     aiSummary:
@@ -2700,6 +2705,7 @@ const isOnlyPhone = messageWithoutPhone.length === 0;
 
         if (isOnlyPhone) {
           lead = await this.leadsService.create({
+  sessionId,
   phone,
   clientName: clientName || undefined,
   source: meta?.vkPeerId ? 'vk' : 'chat',
@@ -2809,6 +2815,7 @@ if (products.length > 1) {
         }
 
         lead = await this.leadsService.create({
+  sessionId,
   phone,
   clientName: clientName || undefined,
   source: meta?.vkPeerId ? 'vk' : 'chat',
@@ -3851,6 +3858,7 @@ ${productsContext}
 
     if (phone) {
       lead = await this.leadsService.create({
+  sessionId,
   phone,
   source: meta?.vkPeerId ? 'vk' : 'chat',
   vkPeerId: meta?.vkPeerId,
@@ -3880,6 +3888,7 @@ ${productsContext}
 
             if (phone) {
   lead = await this.leadsService.create({
+  sessionId,
   phone,
   source: meta?.vkPeerId ? 'vk' : 'chat',
   vkPeerId: meta?.vkPeerId,

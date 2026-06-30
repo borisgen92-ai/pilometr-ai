@@ -18,6 +18,14 @@ export class MessagesService {
     });
   }
 
+
+  async getLatestMessages(limit = 30) {
+    return this.messagesRepository.find({
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
+  }
+
   async getRecentMessages(sessionId: string, limit = 6) {
     return this.messagesRepository.find({
       where: { sessionId },

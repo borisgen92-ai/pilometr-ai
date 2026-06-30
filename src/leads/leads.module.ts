@@ -9,10 +9,11 @@ import { LeadsService } from './leads.service';
 import { LeadsController } from './leads.controller';
 import { VkService } from '../vk/vk.service';
 import { AiModule } from '../ai/ai.module';
+import { MessagesModule } from '../messages/messages.module';
 import { AiSalesService } from './ai-sales.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Lead, LeadNote, LeadItem]), AiModule],
+  imports: [TypeOrmModule.forFeature([Lead, LeadNote, LeadItem]), AiModule, MessagesModule],
   controllers: [LeadsController],
   providers: [LeadsService, VkService, AiSalesService],
   exports: [LeadsService],
