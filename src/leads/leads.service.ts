@@ -122,12 +122,13 @@ export class LeadsService {
 
   async updateStatus(id: string, status: LeadStatus) {
     const lead = await this.findOne(id);
+    const previousStatus = lead.status;
 
     lead.status = status;
 
     const savedLead = await this.leadsRepository.save(lead);
 
-    if (status === LeadStatus.IN_PROGRESS && savedLead.vkPeerId) {
+    if (previousStatus !== status && status === LeadStatus.IN_PROGRESS && savedLead.vkPeerId) {
   const message =
     `Здравствуйте!\n\n` +
     `Ваш заказ № ${savedLead.orderNumber || savedLead.id} принят в работу.\n\n` +
@@ -140,7 +141,7 @@ export class LeadsService {
   );
 }
 
-    if (status === LeadStatus.NEGOTIATION && savedLead.vkPeerId) {
+    if (previousStatus !== status && status === LeadStatus.NEGOTIATION && savedLead.vkPeerId) {
       const message =
         `Ваш заказ № ${savedLead.orderNumber || savedLead.id} готов к выдаче.\n\n` +
         `Товар в наличии, можете забирать заказ.\n\n` +
@@ -153,7 +154,7 @@ export class LeadsService {
       await this.vkService.sendMessage(Number(savedLead.vkPeerId), message);
     }
 
-    if (status === LeadStatus.WON && savedLead.vkPeerId) {
+    if (previousStatus !== status && status === LeadStatus.WON && savedLead.vkPeerId) {
       const message =
         `Ваш заказ № ${savedLead.orderNumber || savedLead.id} успешно выдан.\n\n` +
         `Спасибо за покупку в Пилометре!\n\n` +

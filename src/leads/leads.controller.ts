@@ -9,11 +9,15 @@ import {
 } from '@nestjs/common';
 
 import { LeadsService } from './leads.service';
+import { AiSalesService } from './ai-sales.service';
 import { Lead, LeadStatus } from './lead.entity';
 
 @Controller('leads')
 export class LeadsController {
-  constructor(private readonly leadsService: LeadsService) {}
+  constructor(
+  private readonly leadsService: LeadsService,
+  private readonly aiSalesService: AiSalesService,
+) {}
 
   @Post()
   create(@Body() data: Partial<Lead>) {
@@ -29,6 +33,12 @@ export class LeadsController {
   findOne(@Param('id') id: string) {
     return this.leadsService.findOne(id);
   }
+
+@Get(':id/ai-sales-analysis')
+async getAiSalesAnalysis(@Param('id') id: string) {
+  const lead = await this.leadsService.findOne(id);
+  return this.aiSalesService.analyzeLead(lead);
+}
 
   @Get('status/:status')
   findByStatus(@Param('status') status: LeadStatus) {

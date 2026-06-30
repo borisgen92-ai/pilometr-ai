@@ -569,6 +569,69 @@ const selectedNumber = selectedNumberMatch
         )
         .join('\n\n');
 
+        const warehouseAnalysis = ['Север', 'Марьино', 'Рощино', 'Ладога'].map(
+          (warehouseName) => {
+            const itemsAvailability = allItems.map((item) => {
+              const stock = this.getStockFromWarehouseObject(
+                item.warehouseStock,
+                warehouseName,
+              ) || 0;
+
+              const requested = item.requestedQuantity || 0;
+              const shortage = Math.max(0, requested - stock);
+
+              return {
+                productName: item.productName,
+                requested,
+                stock,
+                shortage,
+              };
+            });
+
+            const totalShortage = itemsAvailability.reduce(
+              (sum, item) => sum + item.shortage,
+              0,
+            );
+
+            const availablePositions = itemsAvailability.filter(
+              (item) => item.shortage === 0,
+            ).length;
+
+            return {
+              warehouseName,
+              totalShortage,
+              availablePositions,
+              itemsAvailability,
+            };
+          },
+        );
+
+        const bestWarehouseOption = warehouseAnalysis
+          .slice()
+          .sort((a, b) => {
+            if (a.totalShortage !== b.totalShortage) {
+              return a.totalShortage - b.totalShortage;
+            }
+
+            return b.availablePositions - a.availablePositions;
+          })[0];
+
+        const warehouseAnalysisText = warehouseAnalysis
+          .map((item) => {
+            const label =
+              item.totalShortage === 0
+                ? 'всё есть'
+                : `не хватает ${item.totalShortage} шт`;
+
+            return `📍 ${item.warehouseName} — ${label}`;
+          })
+          .join('\n');
+
+        const recommendationText =
+          bestWarehouseOption?.totalShortage === 0
+            ? `Лучше всего подходит ${bestWarehouseOption.warehouseName} — там есть все позиции.`
+            : `Лучше всего подходит ${bestWarehouseOption.warehouseName} — там минимальная нехватка: ${bestWarehouseOption.totalShortage} шт.`;
+
              const warehouseButtons = meta?.vkPeerId
           ? {
               one_time: true,
@@ -629,9 +692,11 @@ const selectedNumber = selectedNumberMatch
             }
           : undefined;
 
-        const response =
+                const response =
           `Выбраны варианты:\n\n${productsText}\n\n` +
           `Итого: ${totalBudget.toLocaleString('ru-RU')} ₽\n\n` +
+          `${recommendationText}\n\n` +
+          `По магазинам:\n${warehouseAnalysisText}\n\n` +
           'Выберите магазин самовывоза для всего заказа.';
 
       return this.saveAndReturn(sessionId, response, {
